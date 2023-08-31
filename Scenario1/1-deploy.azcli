@@ -8,8 +8,7 @@ password=Msft123Msft123 #Set password
 # Create a promp command to ask for ZeroTier network ID
 read -p "Enter your ZeroTier network ID: " zerotiernetid
 
-
-#Create a resource group
+# Create a resource group
 az group create --name $rg --location $location -o none
 
 # Create Hub virtual network
