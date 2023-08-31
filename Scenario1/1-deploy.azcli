@@ -83,19 +83,6 @@ az vm run-command invoke -g $rg -n onprem-nva --command-id RunShellScript --scri
 az vm run-command invoke -g $rg -n hub-nva --command-id RunShellScript --scripts "sudo zerotier-cli join $zerotiernetid" --only-show-errors --no-wait
 az vm run-command invoke -g $rg -n onprem-nva --command-id RunShellScript --scripts "sudo zerotier-cli join $zerotiernetid" --only-show-errors --no-wait
 
-# Enabling routing on the NVAs
-az vm run-command invoke -g $rg -n hub-nva --command-id RunShellScript --scripts "curl -s https://github.com/dmauser/AzureVM-Router/blob/master/linuxrouteronly.sh | sudo bash" --only-show-errors --no-wait
-az vm run-command invoke -g $rg -n onprem-nva --command-id RunShellScript --scripts "curl -s https://github.com/dmauser/AzureVM-Router/blob/master/linuxrouteronly.sh | sudo bash" --only-show-errors --no-wait
-
-# Loop script to Install network utilities on all VMs from uri: https://raw.githubusercontent.com/dmauser/azure-vm-net-tools/main/script/nettools.sh
-for vm in $(az vm list -g $rg --query "[].name" -o tsv)
-do
-    az vm run-command invoke -g $rg -n $vm --command-id RunShellScript --scripts "curl -s https://raw.githubusercontent.com/dmauser/azure-vm-net-tools/main/script/nettools.sh | sudo bash" --only-show-errors --no-wait
-done
-
-# Check run command status
-# az vm run-command list -g $rg --query "[].{name:name,status:status}" -o table --location $location
-
 # Create UDR for spoke1
 hupnvaip=$(az vm show -d -g $rg -n hub-nva --query "privateIps" -o tsv)
 az network route-table create --name spoke1-udr --resource-group $rg --location $location --output none
@@ -129,5 +116,4 @@ az network vnet subnet update --resource-group $rg --vnet-name spoke2-vnet --nam
 az network vnet subnet update --resource-group $rg --vnet-name hub-vnet --name subnet1 --route-table hub-udr --output none
 az network vnet subnet update --resource-group $rg --vnet-name onprem-vnet --name subnet1 --route-table onprem-udr --output none
 
-# List all VMs and their IP addresses
-az vm list-ip-addresses -g $rg -o table
+

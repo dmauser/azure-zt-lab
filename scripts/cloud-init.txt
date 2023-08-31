@@ -12,6 +12,7 @@ packages:
   - iperf3
   - nginx
   - speedtest-cli
+  - moreutils
 
 
 write_files:

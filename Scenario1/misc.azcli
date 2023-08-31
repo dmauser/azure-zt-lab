@@ -1,0 +1,39 @@
+#Parameters
+rg=lab-zt-sdwan #Define your resource group
+location=centralus #Set location
+virtualMachineSize=Standard_DS1_v2 #Set VM size
+username=azureuser #Set username
+password=Msft123Msft123 #Set password
+
+
+# Loop script to Install network utilities on all VMs from uri: https://raw.githubusercontent.com/dmauser/azure-vm-net-tools/main/script/nettools.sh
+for vm in $(az vm list -g $rg --query "[].name" -o tsv)
+do
+    az vm run-command invoke -g $rg -n $vm --command-id RunShellScript --scripts "curl -s https://raw.githubusercontent.com/dmauser/azure-vm-net-tools/main/script/nettools.sh | sudo bash" --only-show-errors --no-wait
+done
+
+# Enabling routing on the NVAs
+az vm run-command invoke -g $rg -n hub-nva --command-id RunShellScript --scripts "curl -s https://github.com/dmauser/AzureVM-Router/blob/master/linuxrouteronly.sh | sudo bash" --only-show-errors --no-wait
+az vm run-command invoke -g $rg -n onprem-nva --command-id RunShellScript --scripts "curl -s https://github.com/dmauser/AzureVM-Router/blob/master/linuxrouteronly.sh | sudo bash" --only-show-errors --no-wait
+
+
+az vm run-command invoke --resource-group $rg --name hub-nva --command-id RunShellScript
+
+az vm run-command list --resource-group $rg --vm-name hub-nva --query "[?status=='Succeeded'] | [-1]" --output table
+
+# List all VMs and their IP addresses
+az vm list-ip-addresses -g $rg -o table
+
+
+# Deploy a VM in the resource group using cloud-init.
+#az vm create \
+#    --resource-group $rg \
+#    --name my-vm \
+#    --image UbuntuLTS \
+#    --custom-data cloud-init.txt \
+#    --generate-ssh-keys
+
+az network public-ip create --name hub-nva2-pip --resource-group $rg --location $location --sku Standard --output none --only-show-errors
+az network nic create --name hub-nva2-nic --resource-group $rg --subnet nvasubnet --vnet hub-vnet --public-ip-address hub-nva2-pip --ip-forwarding true --location $location -o none
+az vm create --resource-group $rg --location $location --name hub-nva2 --size $virtualMachineSize --nics hub-nva2-nic --image Ubuntu2204 --admin-username $username --admin-password $password -o none --only-show-errors --custom-data ./scripts/cloud-init.txt
+ 
