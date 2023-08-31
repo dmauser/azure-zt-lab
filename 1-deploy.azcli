@@ -1,0 +1,134 @@
+#Parameters
+rg=lab-zt-sdwan #Define your resource group
+location=centralus #Set location
+virtualMachineSize=Standard_DS1_v2 #Set VM size
+username=azureuser #Set username
+password=Msft123Msft123 #Set password
+
+# Create a promp command to ask for ZeroTier network ID
+read -p "Enter your ZeroTier network ID: " zerotiernetid
+
+
+#Create a resource group
+az group create --name $rg --location $location -o none
+
+# Create Hub virtual network
+az network vnet create --resource-group $rg --name hub-vnet --address-prefix 10.0.0.0/24 --subnet-name subnet1 --subnet-prefix 10.0.0.0/27 --output none
+# Create NVA subnet
+az network vnet subnet create --resource-group $rg --vnet-name hub-vnet --name nvasubnet --address-prefix 10.0.0.32/27 --output none
+# Create spoke1 virtual network
+az network vnet create --resource-group $rg --name spoke1-vnet --address-prefix 10.0.1.0/24 --subnet-name subnet1 --subnet-prefix 10.0.1.0/27 --output none
+# Create spoke2 virtual network
+az network vnet create --resource-group $rg --name spoke2-vnet --address-prefix 10.0.2.0/24 --subnet-name subnet1 --subnet-prefix 10.0.2.0/27 --output none
+
+# Peer spoke1 to hub
+az network vnet peering create --resource-group $rg --name spoke1-to-hub --vnet-name spoke1-vnet --remote-vnet hub-vnet --allow-vnet-access --output none
+# Peer spoke2 to hub
+az network vnet peering create --resource-group $rg --name spoke2-to-hub --vnet-name spoke2-vnet --remote-vnet hub-vnet --allow-vnet-access --output none
+# Peer hub to spoke1
+az network vnet peering create --resource-group $rg --name hub-to-spoke1 --vnet-name hub-vnet --remote-vnet spoke1-vnet --allow-vnet-access --output none
+# Peer hub to spoke2
+az network vnet peering create --resource-group $rg --name hub-to-spoke2 --vnet-name hub-vnet --remote-vnet spoke2-vnet --allow-vnet-access --output none
+
+# Create On-premises virtual network
+az network vnet create --resource-group $rg --name onprem-vnet --address-prefix 192.168.100.0/24 --subnet-name subnet1 --subnet-prefix 192.168.100.0/27 --output none
+# Create NVA subnet
+az network vnet subnet create --resource-group $rg --vnet-name onprem-vnet --name nvasubnet --address-prefix 192.168.100.32/27 --output none
+
+# Create default NSG
+az network nsg create --resource-group $rg --name default-nsg --output none
+# Create NSG rule to allow SSH from my public IP
+mypip=$(curl -s -4 ifconfig.me)
+az network nsg rule create --resource-group $rg --nsg-name default-nsg --name allow_ssh --protocol tcp --priority 1000 --destination-port-range 22 --source-address-prefixes $mypip -o none
+# Associate NSG to all subnets
+az network vnet subnet update --resource-group $rg --vnet-name hub-vnet --name subnet1 --network-security-group default-nsg --output none
+az network vnet subnet update --resource-group $rg --vnet-name spoke1-vnet --name subnet1 --network-security-group default-nsg --output none
+az network vnet subnet update --resource-group $rg --vnet-name spoke2-vnet --name subnet1 --network-security-group default-nsg --output none
+az network vnet subnet update --resource-group $rg --vnet-name onprem-vnet --name subnet1 --network-security-group default-nsg --output none
+# NSG for NVAs
+az network nsg create --resource-group $rg --name nva-nsg --output none
+# Add RFC1918 rule to NVA NSG route private traffic
+az network nsg rule create -g $rg --nsg-name nva-nsg -n 'allow-rfc1918-in' --direction Inbound --priority 310 --source-address-prefixes  10.0.0.0/8 172.16.0.0/12 192.168.0.0/16  --source-port-ranges '*' --destination-address-prefixes  10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 --destination-port-ranges '*' --access Allow --protocol '*' --description "allow-rfc1918-in" --output none
+az network nsg rule create -g $rg --nsg-name nva-nsg -n 'allow-rfc1918-out' --direction outbound --priority 320 --source-address-prefixes 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 --source-port-ranges '*' --destination-address-prefixes 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 --destination-port-ranges '*' --access Allow --protocol '*' --description "allow-rfc1918-out" --output none
+az network nsg rule create --resource-group $rg --nsg-name nva-nsg --name allow_ssh --protocol tcp --priority 330 --destination-port-range 22 --source-address-prefixes $mypip -o none
+# Associate NSG to NVA subnet for both NVAs
+az network vnet subnet update --resource-group $rg --vnet-name hub-vnet --name nvasubnet --network-security-group nva-nsg --output none
+az network vnet subnet update --resource-group $rg --vnet-name onprem-vnet --name nvasubnet --network-security-group nva-nsg --output none
+
+# Create Hub VM
+az vm create -n hub-vm1 -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $virtualMachineSize -l $location --subnet subnet1 --vnet-name hub-vnet --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+# Create Spoke1 VM
+az vm create -n spoke1-vm1 -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $virtualMachineSize -l $location --subnet subnet1 --vnet-name spoke1-vnet --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+# Create Spoke2 VM
+az vm create -n spoke2-vm1 -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $virtualMachineSize -l $location --subnet subnet1 --vnet-name spoke2-vnet --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+# Create On-premises VM
+az vm create -n onprem-vm1 -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $virtualMachineSize -l $location --subnet subnet1 --vnet-name onprem-vnet --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+
+# Create Hub NVA
+az network public-ip create --name hub-nva-pip --resource-group $rg --location $location --sku Standard --output none --only-show-errors
+az network nic create --name hub-nva-nic --resource-group $rg --subnet nvasubnet --vnet hub-vnet --public-ip-address hub-nva-pip --ip-forwarding true --location $location -o none
+az vm create --resource-group $rg --location $location --name hub-nva --size $virtualMachineSize --nics hub-nva-nic --image Ubuntu2204 --admin-username $username --admin-password $password -o none --only-show-errors
+ 
+# Create On-premises NVA
+az network public-ip create --name onprem-nva-pip --resource-group $rg --location $location --sku Standard --output none --only-show-errors
+az network nic create --name onprem-nva-nic --resource-group $rg --subnet nvasubnet --vnet onprem-vnet --public-ip-address onprem-nva-pip --ip-forwarding true --location $location -o none
+az vm create --resource-group $rg --location $location --name onprem-nva --size $virtualMachineSize --nics onprem-nva-nic --image Ubuntu2204 --admin-username $username --admin-password $password -o none --only-show-errors
+
+ # Wait for Hub NVA and On-premises NVA to be ready
+az vm wait --name hub-nva --resource-group $rg --created --interval 10 --timeout 1800
+az vm wait --name onprem-nva --resource-group $rg --created --interval 10 --timeout 1800
+
+# Install ZeroTier on both NVAs and join to ZeroTier network
+az vm run-command invoke -g $rg -n hub-nva --command-id RunShellScript --scripts "curl -s https://install.zerotier.com | sudo bash" --only-show-errors -o none --no-wait
+az vm run-command invoke -g $rg -n onprem-nva --command-id RunShellScript --scripts "curl -s https://install.zerotier.com | sudo bash" --only-show-errors -o none
+az vm run-command invoke -g $rg -n hub-nva --command-id RunShellScript --scripts "sudo zerotier-cli join $zerotiernetid" --only-show-errors --no-wait
+az vm run-command invoke -g $rg -n onprem-nva --command-id RunShellScript --scripts "sudo zerotier-cli join $zerotiernetid" --only-show-errors --no-wait
+
+# Enabling routing on the NVAs
+az vm run-command invoke -g $rg -n hub-nva --command-id RunShellScript --scripts "curl -s https://github.com/dmauser/AzureVM-Router/blob/master/linuxrouteronly.sh | sudo bash" --only-show-errors --no-wait
+az vm run-command invoke -g $rg -n onprem-nva --command-id RunShellScript --scripts "curl -s https://github.com/dmauser/AzureVM-Router/blob/master/linuxrouteronly.sh | sudo bash" --only-show-errors --no-wait
+
+# Loop script to Install network utilities on all VMs from uri: https://raw.githubusercontent.com/dmauser/azure-vm-net-tools/main/script/nettools.sh
+for vm in $(az vm list -g $rg --query "[].name" -o tsv)
+do
+    az vm run-command invoke -g $rg -n $vm --command-id RunShellScript --scripts "curl -s https://raw.githubusercontent.com/dmauser/azure-vm-net-tools/main/script/nettools.sh | sudo bash" --only-show-errors --no-wait
+done
+
+# Check run command status
+# az vm run-command list -g $rg --query "[].{name:name,status:status}" -o table --location $location
+
+# Create UDR for spoke1
+hupnvaip=$(az vm show -d -g $rg -n hub-nva --query "privateIps" -o tsv)
+az network route-table create --name spoke1-udr --resource-group $rg --location $location --output none
+az network route-table route create --name 10net --resource-group $rg --route-table-name spoke1-udr --address-prefix 10.0.0.0/8 --next-hop-type VirtualAppliance --next-hop-ip-address $hupnvaip --output none 
+az network route-table route create --name 172net --resource-group $rg --route-table-name spoke1-udr --address-prefix 172.16.0.0/12 --next-hop-type VirtualAppliance --next-hop-ip-address $hupnvaip --output none 
+az network route-table route create --name 192net --resource-group $rg --route-table-name spoke1-udr --address-prefix 192.168.0.0/16 --next-hop-type VirtualAppliance --next-hop-ip-address $hupnvaip --output none 
+
+
+# Create UDR for spoke2
+az network route-table create --name spoke2-udr --resource-group $rg --location $location --output none
+az network route-table route create --name 10net --resource-group $rg --route-table-name spoke2-udr --address-prefix 10.0.0.0/8 --next-hop-type VirtualAppliance --next-hop-ip-address $hupnvaip --output none 
+az network route-table route create --name 172net --resource-group $rg --route-table-name spoke2-udr --address-prefix 172.16.0.0/12 --next-hop-type VirtualAppliance --next-hop-ip-address $hupnvaip --output none 
+az network route-table route create --name 192net --resource-group $rg --route-table-name spoke2-udr --address-prefix 192.168.0.0/16 --next-hop-type VirtualAppliance --next-hop-ip-address $hupnvaip --output none 
+
+# Create UDR for hub subnet1
+az network route-table create --name hub-udr --resource-group $rg --location $location --output none
+az network route-table route create --name 10net --resource-group $rg --route-table-name hub-udr --address-prefix 10.0.0.0/8 --next-hop-type VirtualAppliance --next-hop-ip-address $hupnvaip --output none 
+az network route-table route create --name 172net --resource-group $rg --route-table-name hub-udr --address-prefix 172.16.0.0/12 --next-hop-type VirtualAppliance --next-hop-ip-address $hupnvaip --output none 
+az network route-table route create --name 192net --resource-group $rg --route-table-name hub-udr --address-prefix 192.168.0.0/16 --next-hop-type VirtualAppliance --next-hop-ip-address $hupnvaip --output none 
+
+# Create UDR for onprem subnet1
+onpremnvaip=$(az vm show -d -g $rg -n onprem-nva --query "privateIps" -o tsv)
+az network route-table create --name onprem-udr --resource-group $rg --location $location --output none
+az network route-table route create --name 10net --resource-group $rg --route-table-name onprem-udr --address-prefix 10.0.0.0/8 --next-hop-type VirtualAppliance --next-hop-ip-address $onpremnvaip --output none 
+az network route-table route create --name 172net --resource-group $rg --route-table-name onprem-udr --address-prefix 172.16.0.0/12 --next-hop-type VirtualAppliance --next-hop-ip-address $onpremnvaip --output none 
+az network route-table route create --name 192net --resource-group $rg --route-table-name onprem-udr --address-prefix 192.168.0.0/16 --next-hop-type VirtualAppliance --next-hop-ip-address $onpremnvaip --output none 
+
+# Associate UDRs to subnets
+az network vnet subnet update --resource-group $rg --vnet-name spoke1-vnet --name subnet1 --route-table spoke1-udr --output none
+az network vnet subnet update --resource-group $rg --vnet-name spoke2-vnet --name subnet1 --route-table spoke2-udr --output none
+az network vnet subnet update --resource-group $rg --vnet-name hub-vnet --name subnet1 --route-table hub-udr --output none
+az network vnet subnet update --resource-group $rg --vnet-name onprem-vnet --name subnet1 --route-table onprem-udr --output none
+
+# List all VMs and their IP addresses
+az vm list-ip-addresses -g $rg -o table
