@@ -1,0 +1,18 @@
+
+#cloud-config
+
+package_upgrade: true
+
+packages:
+  - traceroute
+  - net-tools
+  - nmap
+  - hping3
+  - iperf3
+  - nginx
+  - speedtest-cli
+  - moreutils
+
+
+runcmd:
+  - hostname > /var/www/html/index.html

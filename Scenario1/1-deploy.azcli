@@ -54,24 +54,27 @@ az network nsg rule create --resource-group $rg --nsg-name nva-nsg --name allow_
 az network vnet subnet update --resource-group $rg --vnet-name hub-vnet --name nvasubnet --network-security-group nva-nsg --output none
 az network vnet subnet update --resource-group $rg --vnet-name onprem-vnet --name nvasubnet --network-security-group nva-nsg --output none
 
+toolsinit=https://raw.githubusercontent.com/dmauser/azure-zt-lab/main/scripts/tools-init.txt
 # Create Hub VM
-az vm create -n hub-vm1 -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $virtualMachineSize -l $location --subnet subnet1 --vnet-name hub-vnet --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n hub-vm1 -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $virtualMachineSize -l $location --subnet subnet1 --vnet-name hub-vnet --admin-username $username --admin-password $password --nsg "" --custom-data $toolsinit --no-wait --only-show-errors
 # Create Spoke1 VM
-az vm create -n spoke1-vm1 -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $virtualMachineSize -l $location --subnet subnet1 --vnet-name spoke1-vnet --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n spoke1-vm1 -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $virtualMachineSize -l $location --subnet subnet1 --vnet-name spoke1-vnet --admin-username $username --admin-password $password --nsg "" --custom-data $toolsinit --no-wait --only-show-errors
 # Create Spoke2 VM
-az vm create -n spoke2-vm1 -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $virtualMachineSize -l $location --subnet subnet1 --vnet-name spoke2-vnet --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n spoke2-vm1 -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $virtualMachineSize -l $location --subnet subnet1 --vnet-name spoke2-vnet --admin-username $username --admin-password $password --nsg "" --custom-data $toolsinit --no-wait --only-show-errors
 # Create On-premises VM
-az vm create -n onprem-vm1 -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $virtualMachineSize -l $location --subnet subnet1 --vnet-name onprem-vnet --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n onprem-vm1 -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $virtualMachineSize -l $location --subnet subnet1 --vnet-name onprem-vnet --admin-username $username --admin-password $password --nsg "" --custom-data $toolsinit --no-wait --only-show-errors
 
+# Cloud Init
+cloudinit=https://raw.githubusercontent.com/dmauser/azure-zt-lab/main/scripts/cloud-init.txt
 # Create Hub NVA
 az network public-ip create --name hub-nva-pip --resource-group $rg --location $location --sku Standard --output none --only-show-errors
 az network nic create --name hub-nva-nic --resource-group $rg --subnet nvasubnet --vnet hub-vnet --public-ip-address hub-nva-pip --ip-forwarding true --location $location -o none
-az vm create --resource-group $rg --location $location --name hub-nva --size $virtualMachineSize --nics hub-nva-nic --image Ubuntu2204 --admin-username $username --admin-password $password -o none --only-show-errors
+az vm create --resource-group $rg --location $location --name hub-nva --size $virtualMachineSize --nics hub-nva-nic --image Ubuntu2204 --admin-username $username --admin-password $password --custom-data $cloudinit -o none --only-show-errors
  
 # Create On-premises NVA
 az network public-ip create --name onprem-nva-pip --resource-group $rg --location $location --sku Standard --output none --only-show-errors
 az network nic create --name onprem-nva-nic --resource-group $rg --subnet nvasubnet --vnet onprem-vnet --public-ip-address onprem-nva-pip --ip-forwarding true --location $location -o none
-az vm create --resource-group $rg --location $location --name onprem-nva --size $virtualMachineSize --nics onprem-nva-nic --image Ubuntu2204 --admin-username $username --admin-password $password -o none --only-show-errors
+az vm create --resource-group $rg --location $location --name onprem-nva --size $virtualMachineSize --nics onprem-nva-nic --image Ubuntu2204 --admin-username $username --admin-password $password --custom-data $cloudinit -o none --only-show-errors
 
  # Wait for Hub NVA and On-premises NVA to be ready
 az vm wait --name hub-nva --resource-group $rg --created --interval 10 --timeout 1800

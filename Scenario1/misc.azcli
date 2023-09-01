@@ -5,7 +5,6 @@ virtualMachineSize=Standard_DS1_v2 #Set VM size
 username=azureuser #Set username
 password=Msft123Msft123 #Set password
 
-
 # Loop script to Install network utilities on all VMs from uri: https://raw.githubusercontent.com/dmauser/azure-vm-net-tools/main/script/nettools.sh
 for vm in $(az vm list -g $rg --query "[].name" -o tsv)
 do
