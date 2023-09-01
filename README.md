@@ -41,6 +41,6 @@ read -p "Enter your ZeroTier network ID: " zerotiernetid
 - Reference Network diagram:
 ![](./Scenario1/1-diagram.png)
 
-2. Scenario 2: On-Premises to Azure Hub and Spoke (Dynamic Routing using BGP)
+###  Scenario 2: On-Premises to Azure Hub and Spoke (Dynamic Routing using BGP)
 
 Coming soon...
