@@ -1,0 +1,25 @@
+flowchart LR
+    subgraph OP["on-prem-vnet 192.168.100.0/24"]
+        OPVM["onprem-vm1<br/>subnet1 192.168.100.0/27"]
+        OPNVA["onprem-nva<br/>nvasubnet .36 - IP-fwd"]
+        OPUDR{{"onprem-udr<br/>RFC1918 to .36"}}
+        OPVM -. UDR .-> OPUDR
+    end
+
+    subgraph HUB["hub-vnet 10.0.0.0/24"]
+        HVM["hub-vm1<br/>subnet1 10.0.0.0/27"]
+        HNVA["hub-nva<br/>nvasubnet .36 - IP-fwd"]
+        HUDR{{"hub-udr<br/>RFC1918 to .36"}}
+        HVM -. UDR .-> HUDR
+    end
+
+    subgraph S1["spoke1-vnet 10.0.1.0/24"]
+        S1VM["spoke1-vm1<br/>10.0.1.0/27 to hub-nva"]
+    end
+    subgraph S2["spoke2-vnet 10.0.2.0/24"]
+        S2VM["spoke2-vm1<br/>10.0.2.0/27 to hub-nva"]
+    end
+
+    OPNVA <===>|"ZeroTier overlay<br/>(encrypted)"| HNVA
+    S1 <-->|"VNet peering"| HUB
+    S2 <-->|"VNet peering"| HUB

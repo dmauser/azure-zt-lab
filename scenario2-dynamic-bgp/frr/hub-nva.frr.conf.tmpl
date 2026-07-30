@@ -1,0 +1,40 @@
+! =========================================================================
+! FRR BGP config - HUB NVA (Scenario 2)
+! -------------------------------------------------------------------------
+! Role: transit router between the Azure Route Server and the on-prem NVA.
+!   * Peers the TWO Azure Route Server IPs (ASN 65515) over the VNet.
+!     Route Server IPs live in RouteServerSubnet, one hop away, so
+!     ebgp-multihop is required.
+!   * Peers the on-prem NVA (ASN 65002) across the ZeroTier overlay.
+!   * eBGP re-advertises routes between peers automatically, so the hub NVA
+!     transports on-prem prefixes to the Route Server and Azure prefixes to
+!     on-prem with no static "network" statements of its own.
+!
+! Placeholders replaced by apply-frr.sh:
+!   __HUB_NVA_ASN__            e.g. 65001
+!   __ROUTE_SERVER_IP_1__      first  Route Server BGP IP (deployment output)
+!   __ROUTE_SERVER_IP_2__      second Route Server BGP IP (deployment output)
+!   __ONPREM_NVA_ASN__         e.g. 65002
+!   __ONPREM_NVA_OVERLAY_IP__  on-prem NVA's ZeroTier IP
+! =========================================================================
+frr defaults traditional
+!
+router bgp __HUB_NVA_ASN__
+ bgp router-id __HUB_NVA_IP__
+ no bgp ebgp-requires-policy
+ !
+ ! --- Azure Route Server (two sessions, always ASN 65515) ---
+ neighbor __ROUTE_SERVER_IP_1__ remote-as 65515
+ neighbor __ROUTE_SERVER_IP_1__ ebgp-multihop 2
+ neighbor __ROUTE_SERVER_IP_2__ remote-as 65515
+ neighbor __ROUTE_SERVER_IP_2__ ebgp-multihop 2
+ !
+ ! --- On-prem NVA over the ZeroTier overlay ---
+ neighbor __ONPREM_NVA_OVERLAY_IP__ remote-as __ONPREM_NVA_ASN__
+ !
+ address-family ipv4 unicast
+  neighbor __ROUTE_SERVER_IP_1__ activate
+  neighbor __ROUTE_SERVER_IP_2__ activate
+  neighbor __ONPREM_NVA_OVERLAY_IP__ activate
+ exit-address-family
+!

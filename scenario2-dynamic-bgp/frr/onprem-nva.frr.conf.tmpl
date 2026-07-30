@@ -1,0 +1,30 @@
+! =========================================================================
+! FRR BGP config - ON-PREM NVA (Scenario 2)
+! -------------------------------------------------------------------------
+! Role: the "customer edge". Advertises the on-prem LAN into BGP and learns
+! the Azure prefixes from the hub NVA across the ZeroTier overlay.
+!   * Peers the hub NVA (ASN 65001) over the ZeroTier overlay.
+!   * Advertises 192.168.100.0/24 (the on-prem VNet) via a network statement.
+!   * Learns 10.0.0.0/24, 10.0.1.0/24, 10.0.2.0/24 dynamically from the hub NVA
+!     (which relays them from the Azure Route Server).
+!
+! Placeholders replaced by apply-frr.sh:
+!   __ONPREM_NVA_ASN__       e.g. 65002
+!   __ONPREM_NVA_IP__        on-prem NVA's VNet IP (router-id)
+!   __HUB_NVA_ASN__          e.g. 65001
+!   __HUB_NVA_OVERLAY_IP__   hub NVA's ZeroTier IP
+! =========================================================================
+frr defaults traditional
+!
+router bgp __ONPREM_NVA_ASN__
+ bgp router-id __ONPREM_NVA_IP__
+ no bgp ebgp-requires-policy
+ !
+ ! --- Hub NVA over the ZeroTier overlay ---
+ neighbor __HUB_NVA_OVERLAY_IP__ remote-as __HUB_NVA_ASN__
+ !
+ address-family ipv4 unicast
+  network 192.168.100.0/24
+  neighbor __HUB_NVA_OVERLAY_IP__ activate
+ exit-address-family
+!

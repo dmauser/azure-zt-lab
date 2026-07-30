@@ -1,0 +1,24 @@
+# Local parameter files that may contain secrets
+*.local.json
+*.parameters.local.bicepparam
+.env
+.env.*
+
+# Azure / deployment artifacts
+*.deployment.json
+azure-cli.log
+*.b64
+
+# Compiled Bicep (ARM JSON) output
+scenario*/main.json
+modules/*.json
+
+# SSH keys accidentally dropped in the repo
+id_rsa
+id_rsa.pub
+*.pem
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp

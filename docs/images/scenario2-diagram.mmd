@@ -1,0 +1,25 @@
+flowchart LR
+    subgraph OP["on-prem-vnet 192.168.100.0/24"]
+        OPVM["onprem-vm1<br/>subnet1 192.168.100.0/27"]
+        OPNVA["onprem-nva - FRR<br/>AS 65002 - nvasubnet .36"]
+        OPUDR{{"onprem-udr<br/>RFC1918 to .36 (static)"}}
+        OPVM -. UDR .-> OPUDR
+    end
+
+    subgraph HUB["hub-vnet 10.0.0.0/24"]
+        HVM["hub-vm1<br/>subnet1 10.0.0.0/27"]
+        HNVA["hub-nva - FRR<br/>AS 65001 - nvasubnet .36"]
+        RS["Azure Route Server<br/>AS 65515<br/>RouteServerSubnet 10.0.0.64/27"]
+        HNVA <==>|"BGP<br/>eBGP-multihop"| RS
+    end
+
+    subgraph S1["spoke1-vnet 10.0.1.0/24"]
+        S1VM["spoke1-vm1"]
+    end
+    subgraph S2["spoke2-vnet 10.0.2.0/24"]
+        S2VM["spoke2-vm1"]
+    end
+
+    OPNVA <==>|"BGP over ZeroTier overlay<br/>(encrypted)"| HNVA
+    S1 <-->|"peering + gateway transit"| HUB
+    S2 <-->|"peering + gateway transit"| HUB

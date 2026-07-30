@@ -1,5 +1,11 @@
 #cloud-config
-
+# NVA (Network Virtual Appliance) bootstrap for the ZeroTier Azure lab.
+#   * Enables IPv4/IPv6 forwarding so the VM can route between the ZeroTier
+#     overlay and the Azure VNets.
+#   * Installs FRR (used for BGP in Scenario 2 - dynamic routing).
+#   * Configures SNAT/MASQUERADE so overlay traffic egresses correctly.
+#   * ZeroTier itself and (for Scenario 2) the FRR/BGP config are applied
+#     post-deployment by the scenario deploy.sh scripts.
 package_upgrade: true
 
 packages:
@@ -14,7 +20,6 @@ packages:
   - speedtest-cli
   - moreutils
 
-
 write_files:
   - path: /etc/sysctl.d/99-enable-ip-forwarding.conf
     content: |
@@ -23,13 +28,12 @@ write_files:
       net.ipv4.conf.all.accept_redirects=0
       net.ipv6.conf.all.accept_redirects=0
 
-
 runcmd:
   - sysctl --system
   - iptables -t nat -A POSTROUTING -d 10.0.0.0/8 -j ACCEPT
   - iptables -t nat -A POSTROUTING -d 172.16.0.0/12 -j ACCEPT
   - iptables -t nat -A POSTROUTING -d 192.168.0.0/16 -j ACCEPT
-  - iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE 
+  - iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
   - iptables-save > /etc/iptables/rules.v4
   - echo iptables-persistent iptables-persistent/autosave_v4 boolean false | sudo debconf-set-selections
   - echo iptables-persistent iptables-persistent/autosave_v6 boolean false | sudo debconf-set-selections
