@@ -1,25 +1,52 @@
-flowchart LR
-    subgraph OP["on-prem-vnet 192.168.100.0/24"]
-        OPVM["onprem-vm1<br/>subnet1 192.168.100.0/27"]
-        OPNVA["onprem-nva<br/>nvasubnet .36 - IP-fwd"]
-        OPUDR{{"onprem-udr<br/>RFC1918 to .36"}}
+flowchart TB
+    %% ---- On-prem (top) ----
+    subgraph OP["on-prem-vnet · 192.168.100.0/24"]
+        direction LR
+        OPVM["onprem-vm1<br/>subnet1 · 192.168.100.0/27"]
+        OPUDR{{"onprem-udr<br/>RFC1918 → .36"}}
+        OPNVA["onprem-nva<br/>nvasubnet .36 · IP-fwd"]
         OPVM -. UDR .-> OPUDR
     end
 
-    subgraph HUB["hub-vnet 10.0.0.0/24"]
-        HVM["hub-vm1<br/>subnet1 10.0.0.0/27"]
-        HNVA["hub-nva<br/>nvasubnet .36 - IP-fwd"]
-        HUDR{{"hub-udr<br/>RFC1918 to .36"}}
+    %% ---- Hub (middle) ----
+    subgraph HUB["hub-vnet · 10.0.0.0/24"]
+        direction LR
+        HNVA["hub-nva<br/>nvasubnet .36 · IP-fwd"]
+        HVM["hub-vm1<br/>subnet1 · 10.0.0.0/27"]
+        HUDR{{"hub-udr<br/>RFC1918 → .36"}}
         HVM -. UDR .-> HUDR
     end
 
-    subgraph S1["spoke1-vnet 10.0.1.0/24"]
-        S1VM["spoke1-vm1<br/>10.0.1.0/27 to hub-nva"]
+    %% ---- Spokes (bottom) ----
+    subgraph S1["spoke1-vnet · 10.0.1.0/24"]
+        S1VM["spoke1-vm1<br/>10.0.1.0/27 → hub-nva"]
     end
-    subgraph S2["spoke2-vnet 10.0.2.0/24"]
-        S2VM["spoke2-vm1<br/>10.0.2.0/27 to hub-nva"]
+    subgraph S2["spoke2-vnet · 10.0.2.0/24"]
+        S2VM["spoke2-vm1<br/>10.0.2.0/27 → hub-nva"]
     end
 
-    OPNVA <===>|"ZeroTier overlay<br/>(encrypted)"| HNVA
-    S1 <-->|"VNet peering"| HUB
-    S2 <-->|"VNet peering"| HUB
+    %% ---- Links ----
+    OPNVA <== "ZeroTier overlay (encrypted)" ==> HNVA
+    HVM <-->|"VNet peering"| S1VM
+    HVM <-->|"VNet peering"| S2VM
+
+    %% ---- Node styling ----
+    classDef vm fill:#eaf3fb,stroke:#3a7bd5,color:#12324f;
+    classDef nva fill:#e9f7ef,stroke:#2e9e5b,color:#12402a,font-weight:bold;
+    classDef udr fill:#f3eefb,stroke:#8054c7,color:#341a5e;
+
+    class OPVM,HVM,S1VM,S2VM vm;
+    class OPNVA,HNVA nva;
+    class OPUDR,HUDR udr;
+
+    %% ---- Subgraph styling ----
+    style OP fill:#fbf6ef,stroke:#b5732a,color:#4a2e0e;
+    style HUB fill:#eef4fc,stroke:#1f5fae,color:#0b3a5b;
+    style S1 fill:#f5f9ff,stroke:#3a7bd5,color:#12324f;
+    style S2 fill:#f5f9ff,stroke:#3a7bd5,color:#12324f;
+
+    %% ---- Link styling (index = declaration order) ----
+    %% 0: onprem UDR  1: hub UDR  2: ZeroTier  3: spoke1  4: spoke2
+    linkStyle 2 stroke:#c0392b,stroke-width:3px,stroke-dasharray:6 4;
+    linkStyle 3 stroke:#2e9e5b,stroke-width:2px;
+    linkStyle 4 stroke:#2e9e5b,stroke-width:2px;

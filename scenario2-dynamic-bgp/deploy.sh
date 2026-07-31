@@ -67,6 +67,13 @@ for nva in hub-nva onprem-nva; do
   ok "ZeroTier joined on ${nva}."
 done
 
+# ----- ZeroTier authorize + pin overlay IPs (optional, needs API token) ----
+# Supply a token via the ZEROTIER_API_TOKEN env var or the prompt below to
+# authorize both members automatically and record their overlay IPs in
+# .zt-overlay.env (consumed by apply-frr.sh). Press Enter to skip.
+source "${REPO_ROOT}/scripts/zt-postdeploy.sh"
+zt_postdeploy "${RG}" "${ZT_NETID}" "${SCRIPT_DIR}/.zt-overlay.env"
+
 echo
 bold "== Deployment complete =="
 az deployment group show -g "${RG}" -n "$(az deployment group list -g "${RG}" --query "[?contains(name,'scenario2')].name | [0]" -o tsv)" \
@@ -75,10 +82,9 @@ az deployment group show -g "${RG}" -n "$(az deployment group list -g "${RG}" --
 cat <<EOF
 
 Next steps:
-  1. Authorize hub-nva + onprem-nva in https://my.zerotier.com/ and note their
-     overlay IPs (see ../docs/zerotier-setup.md).
-  2. Bring up BGP:   ./apply-frr.sh
-  3. Verify learned routes (see README).
+  1. Bring up BGP:   ./apply-frr.sh
+     (it auto-reads the overlay IPs from .zt-overlay.env when present).
+  2. Verify learned routes (see README.md).
 
 Tear down with:  ./cleanup.sh
 EOF

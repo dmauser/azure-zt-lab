@@ -11,6 +11,22 @@ VM learns it; Azure VNet prefixes flow back to on‑prem the same way. No UDRs t
 maintain on the Azure side. For the static equivalent, see
 [Scenario 1](../scenario1-static-routing/README.md).
 
+## End‑to‑end walkthrough
+
+1. **Deploy** the infrastructure incl. Azure Route Server — `./deploy.sh` (~20 min).
+2. **Authorize** the two NVAs on the ZeroTier network — automatic when you supply
+   an API token, otherwise manual in the portal.
+3. **Bring up BGP** — `./apply-frr.sh` (auto‑reads the pinned overlay IPs).
+4. **Verify** learned routes (`vtysh`, Route Server, effective routes on a spoke).
+5. **Clean up** — `./cleanup.sh`.
+
+Overlay IP plan (pinned automatically by `deploy.sh`, consumed by `apply-frr.sh`):
+
+| Node | Overlay IP |
+| --- | --- |
+| `hub-nva` | `172.27.0.10` |
+| `onprem-nva` | `172.27.0.20` |
+
 ## Network diagram
 
 ```mermaid
@@ -37,8 +53,8 @@ flowchart LR
     end
 
     OPNVA <==>|"BGP over ZeroTier overlay<br/>(encrypted)"| HNVA
-    S1 <-->|"peering + gateway transit"| HUB
-    S2 <-->|"peering + gateway transit"| HUB
+    S1VM <-->|"peering + gateway transit"| HVM
+    S2VM <-->|"peering + gateway transit"| HVM
 ```
 
 | VNet | Address space | Subnets | Notes |
@@ -80,13 +96,15 @@ flowchart LR
 
 * An Azure subscription and the [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) (`az login`).
 * [Bicep](https://learn.microsoft.com/azure/azure-resource-manager/bicep/install) (bundled with recent `az`).
-* A ZeroTier network — see [../docs/zerotier-setup.md](../docs/zerotier-setup.md). Have your **Network ID** ready.
-* `bash`, `curl`, and `base64` (Azure Cloud Shell has all three).
+* A ZeroTier network **and API token** — see [../docs/zerotier-setup.md](../docs/zerotier-setup.md). Have your **Network ID** ready.
+* `bash`, `curl`, `base64`, and `jq` (Cloud Shell has all four; `jq` is used by the authorization automation).
+* An **OpenSSH client** for the verification steps.
 
 ## Deploy
 
 ```bash
 cd scenario2-dynamic-bgp
+export ZEROTIER_API_TOKEN="<your-token>"   # optional; enables auto-authorization
 ./deploy.sh
 ```
 
@@ -95,22 +113,21 @@ cd scenario2-dynamic-bgp
 1. Prompt for resource group, region, VM size, **admin username/password**, and
    your **ZeroTier Network ID** (nothing is hardcoded).
 2. Base64‑encode the cloud‑init files and deploy `main.bicep`, including the
-   **Azure Route Server** (this step adds ~15–20 min).
+   **Azure Route Server** — the whole deploy takes **~20 min** (Route Server alone
+   adds ~15 min).
 3. Install ZeroTier on both NVAs and join them to your network.
-
-Then finish the **manual ZeroTier step**: authorize `hub-nva` and `onprem-nva`
-in the portal and note their overlay IPs
-(see [../docs/zerotier-setup.md](../docs/zerotier-setup.md)).
+4. **Authorize both NVAs and pin their overlay IPs** (`172.27.0.10` / `172.27.0.20`)
+   via the ZeroTier API when a token is available — otherwise it prints the manual
+   portal steps — and writes the resolved IPs to `.zt-overlay.env`.
 
 ## Bring up BGP
-
-Once both NVAs have overlay IPs:
 
 ```bash
 ./apply-frr.sh
 ```
 
-It reads the Route Server IPs from the deployment outputs, renders the FRR
+It auto‑reads the pinned overlay IPs from `.zt-overlay.env` (prompting only as a
+fallback), reads the Route Server IPs from the deployment outputs, renders the FRR
 templates in [`frr/`](./frr), enables `bgpd`, and restarts FRR on each NVA.
 
 ## Verify
@@ -132,7 +149,7 @@ az network routeserver peering list-advertised-routes \
 # Effective routes on a spoke NIC — the on-prem prefix now appears with
 # origin "VirtualNetworkGateway"/BGP (NOT a static UDR):
 az network nic show-effective-route-table -g <rg> -n spoke1-vm1-nic \
-  --query "value[?contains(addressPrefix[0],'192.168')].[addressPrefix[0], nextHopType[0]]" -o tsv
+  --query "value[?contains(addressPrefix[0],'192.168')].[addressPrefix[0], nextHopType]" -o tsv
 
 # End-to-end (SSH to onprem-vm1):
 curl http://10.0.1.4                     # onprem-vm1 -> spoke1-vm1 (nginx returns hostname)

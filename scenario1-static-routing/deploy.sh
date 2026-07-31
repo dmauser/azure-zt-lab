@@ -70,6 +70,13 @@ for nva in hub-nva onprem-nva; do
   ok "ZeroTier joined on ${nva}."
 done
 
+# ----- ZeroTier authorize + pin overlay IPs (optional, needs API token) ----
+# Supply a token via the ZEROTIER_API_TOKEN env var or the prompt below to
+# authorize both members automatically. Press Enter at the prompt to skip and
+# authorize manually in the portal instead.
+source "${REPO_ROOT}/scripts/zt-postdeploy.sh"
+zt_postdeploy "${RG}" "${ZT_NETID}" "${SCRIPT_DIR}/.zt-overlay.env"
+
 # ----- summary -------------------------------------------------------------
 echo
 bold "== Deployment complete =="
@@ -79,10 +86,8 @@ az deployment group show -g "${RG}" -n "$(az deployment group list -g "${RG}" --
 cat <<EOF
 
 Next steps:
-  1. Open https://my.zerotier.com/  ->  your network.
-  2. Authorize the two new members (hub-nva, onprem-nva) and assign overlay IPs
-     (see docs/zerotier-setup.md for the recommended static assignment).
-  3. Validate connectivity - from onprem-vm1 ping a spoke VM across the overlay.
+  1. Validate connectivity — from onprem-vm1 ping a spoke VM across the overlay
+     (e.g. ping 10.0.1.4). See README.md for the full verification steps.
 
 Tear down with:  ./cleanup.sh
 EOF

@@ -9,6 +9,21 @@ This is the classic, dependency‑free pattern: routing is explicit and
 deterministic. For the dynamic/BGP equivalent, see
 [Scenario 2](../scenario2-dynamic-bgp/README.md).
 
+## End‑to‑end walkthrough
+
+1. **Deploy** the infrastructure — `./deploy.sh` (~5–8 min).
+2. **Authorize** the two NVAs on the ZeroTier network — automatic when you supply
+   an API token, otherwise manual in the portal.
+3. **Verify** connectivity across the overlay (ping/curl a spoke from on‑prem).
+4. **Clean up** — `./cleanup.sh`.
+
+Overlay IP plan (pinned automatically by `deploy.sh`):
+
+| Node | Overlay IP |
+| --- | --- |
+| `hub-nva` | `172.27.0.10` |
+| `onprem-nva` | `172.27.0.20` |
+
 ## Network diagram
 
 ```mermaid
@@ -35,8 +50,8 @@ flowchart LR
     end
 
     OPNVA <===>|"ZeroTier overlay<br/>(encrypted)"| HNVA
-    S1 <-->|"VNet peering"| HUB
-    S2 <-->|"VNet peering"| HUB
+    S1VM <-->|"VNet peering"| HVM
+    S2VM <-->|"VNet peering"| HVM
 ```
 
 | VNet | Address space | Subnets | Notes |
@@ -61,13 +76,15 @@ flowchart LR
 
 * An Azure subscription and the [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) (`az login`).
 * [Bicep](https://learn.microsoft.com/azure/azure-resource-manager/bicep/install) (bundled with recent `az`).
-* A ZeroTier network — see [../docs/zerotier-setup.md](../docs/zerotier-setup.md). Have your **Network ID** ready.
-* `bash`, `curl`, and `base64` (Azure Cloud Shell has all three).
+* A ZeroTier network **and API token** — see [../docs/zerotier-setup.md](../docs/zerotier-setup.md). Have your **Network ID** ready.
+* `bash`, `curl`, `base64`, and `jq` (Cloud Shell has all four; `jq` is used by the authorization automation).
+* An **OpenSSH client** for the verification steps.
 
 ## Deploy
 
 ```bash
 cd scenario1-static-routing
+export ZEROTIER_API_TOKEN="<your-token>"   # optional; enables auto-authorization
 ./deploy.sh
 ```
 
@@ -78,17 +95,16 @@ cd scenario1-static-routing
 2. Lock SSH to your current public IP (auto‑detected, override‑able).
 3. Base64‑encode the cloud‑init files and deploy `main.bicep`.
 4. Install ZeroTier on both NVAs and join them to your network.
-
-Then finish the **manual ZeroTier step**: authorize `hub-nva` and `onprem-nva`
-in the portal and note their overlay IPs
-(see [../docs/zerotier-setup.md](../docs/zerotier-setup.md)).
+5. **Authorize both NVAs and pin their overlay IPs** (`172.27.0.10` / `172.27.0.20`)
+   via the ZeroTier API when a token is available — otherwise it prints the manual
+   portal steps (see [../docs/zerotier-setup.md](../docs/zerotier-setup.md)).
 
 ## Verify
 
 ```bash
 # On each NVA (SSH via its public IP from the deployment outputs):
 sudo zerotier-cli listnetworks          # STATUS = OK
-ping <other-nva-overlay-ip>             # NVAs reachable across the overlay
+ping 172.27.0.20                         # hub-nva -> onprem-nva across the overlay
 
 # End-to-end (SSH to onprem-vm1, ping a spoke workload):
 ping 10.0.1.4                            # onprem-vm1 -> spoke1-vm1

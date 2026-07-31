@@ -1,25 +1,55 @@
-flowchart LR
-    subgraph OP["on-prem-vnet 192.168.100.0/24"]
-        OPVM["onprem-vm1<br/>subnet1 192.168.100.0/27"]
-        OPNVA["onprem-nva - FRR<br/>AS 65002 - nvasubnet .36"]
-        OPUDR{{"onprem-udr<br/>RFC1918 to .36 (static)"}}
-        OPVM -. UDR .-> OPUDR
-    end
-
-    subgraph HUB["hub-vnet 10.0.0.0/24"]
-        HVM["hub-vm1<br/>subnet1 10.0.0.0/27"]
-        HNVA["hub-nva - FRR<br/>AS 65001 - nvasubnet .36"]
-        RS["Azure Route Server<br/>AS 65515<br/>RouteServerSubnet 10.0.0.64/27"]
-        HNVA <==>|"BGP<br/>eBGP-multihop"| RS
-    end
-
-    subgraph S1["spoke1-vnet 10.0.1.0/24"]
+flowchart TB
+    %% ---- Spokes (top) ----
+    subgraph S1["spoke1-vnet &#183; 10.0.1.0/24"]
         S1VM["spoke1-vm1"]
     end
-    subgraph S2["spoke2-vnet 10.0.2.0/24"]
+    subgraph S2["spoke2-vnet &#183; 10.0.2.0/24"]
         S2VM["spoke2-vm1"]
     end
 
-    OPNVA <==>|"BGP over ZeroTier overlay<br/>(encrypted)"| HNVA
-    S1 <-->|"peering + gateway transit"| HUB
-    S2 <-->|"peering + gateway transit"| HUB
+    %% ---- Hub (middle) ----
+    subgraph HUB["hub-vnet &#183; 10.0.0.0/24"]
+        direction LR
+        HVM["hub-vm1<br/>subnet1 &#183; 10.0.0.0/27"]
+        HNVA["hub-nva &#183; FRR<br/>AS 65001 &#183; nvasubnet .36"]
+        RS["Azure Route Server<br/>AS 65515<br/>RouteServerSubnet &#183; 10.0.0.64/27"]
+        HNVA <==>|"BGP<br/>eBGP-multihop"| RS
+    end
+
+    %% ---- On-prem (bottom) ----
+    subgraph OP["on-prem-vnet &#183; 192.168.100.0/24"]
+        direction LR
+        OPNVA["onprem-nva &#183; FRR<br/>AS 65002 &#183; nvasubnet .36"]
+        OPVM["onprem-vm1<br/>subnet1 &#183; 192.168.100.0/27"]
+        OPUDR{{"onprem-udr<br/>RFC1918 &#8594; .36 (static)"}}
+        OPVM -. UDR .-> OPUDR
+    end
+
+    %% ---- Inter-VNet links ----
+    S1 <-->|"VNet peering<br/>(gateway transit)"| HUB
+    S2 <-->|"VNet peering<br/>(gateway transit)"| HUB
+    HNVA <== "BGP over ZeroTier overlay (encrypted)" ==> OPNVA
+
+    %% ---- Node styling ----
+    classDef vm fill:#eaf3fb,stroke:#3a7bd5,color:#12324f;
+    classDef nva fill:#e9f7ef,stroke:#2e9e5b,color:#12402a,font-weight:bold;
+    classDef rs fill:#fdf1e3,stroke:#e08a2b,color:#5a3410,font-weight:bold;
+    classDef udr fill:#f3eefb,stroke:#8054c7,color:#341a5e;
+
+    class S1VM,HVM,OPVM vm;
+    class HNVA,OPNVA nva;
+    class RS rs;
+    class OPUDR udr;
+
+    %% ---- Subgraph styling ----
+    style S1 fill:#f5f9ff,stroke:#3a7bd5,color:#12324f;
+    style S2 fill:#f5f9ff,stroke:#3a7bd5,color:#12324f;
+    style HUB fill:#eef4fc,stroke:#1f5fae,color:#0b3a5b;
+    style OP fill:#fbf6ef,stroke:#b5732a,color:#4a2e0e;
+
+    %% ---- Link styling (index = declaration order) ----
+    %% 0: hub-nva<->RS  1: onprem UDR  2: spoke1  3: spoke2  4: ZeroTier
+    linkStyle 0 stroke:#1f6fc4,stroke-width:2px;
+    linkStyle 2 stroke:#2e9e5b,stroke-width:2px;
+    linkStyle 3 stroke:#2e9e5b,stroke-width:2px;
+    linkStyle 4 stroke:#c0392b,stroke-width:3px,stroke-dasharray:6 4;

@@ -59,22 +59,39 @@ azure-zt-lab/
 
 ## Prerequisites
 
-* An Azure subscription and the [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) (`az login`).
-* [Bicep](https://learn.microsoft.com/azure/azure-resource-manager/bicep/install) (bundled with a recent `az`).
-* A **ZeroTier** account + network — follow [docs/zerotier-setup.md](./docs/zerotier-setup.md) and keep your **Network ID** handy.
-* `bash`, `curl`, and `base64`. [Azure Cloud Shell](https://shell.azure.com) has everything pre‑installed.
+Everything runs from [Azure Cloud Shell](https://shell.azure.com) (bash), which
+already has the Azure CLI, Bicep, `jq`, `curl`, `base64`, and an SSH client. To
+run locally instead, install:
+
+| Requirement | Notes |
+| --- | --- |
+| Azure subscription + [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) | run `az login` first |
+| [Bicep](https://learn.microsoft.com/azure/azure-resource-manager/bicep/install) | bundled with a recent `az` |
+| **ZeroTier** account, network, and **API token** | follow [docs/zerotier-setup.md](./docs/zerotier-setup.md); keep your **Network ID** handy |
+| `bash`, `curl`, `base64`, `jq` | `jq` is required by the ZeroTier API automation |
+| OpenSSH client | for the SSH verification steps |
 
 ## Quick start
 
 ```bash
-# 1. Set up your ZeroTier network (once) — see docs/zerotier-setup.md
+# 1. Set up your ZeroTier network + API token (once) — see docs/zerotier-setup.md
+export ZEROTIER_API_TOKEN="<your-token>"   # enables hands-free member authorization
+
 # 2. Pick a scenario and deploy:
 cd scenario1-static-routing        # or scenario2-dynamic-bgp
-./deploy.sh                        # prompts for creds + ZeroTier Network ID
-# 3. Authorize the two NVAs in the ZeroTier portal (manual, one-time)
-# 4. Verify + tear down (see the scenario README):
+./deploy.sh                        # prompts for creds + ZeroTier Network ID,
+                                   # then authorizes both NVAs via the API
+
+# 3. Scenario 2 only — bring up BGP:
+#    ./apply-frr.sh               # auto-reads the pinned overlay IPs
+
+# 4. Verify, then tear down (see the scenario README):
 ./cleanup.sh
 ```
+
+> Member authorization is **automatic** when `ZEROTIER_API_TOKEN` is set (or
+> pasted at the prompt). Skip the token to fall back to authorizing the two NVAs
+> manually in the portal.
 
 Each scenario README has its own diagram, address plan, verification commands,
 and teardown steps.

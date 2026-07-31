@@ -23,8 +23,21 @@ ONPREM_NVA_IP=192.168.100.36
 
 bold "== Scenario 2: apply FRR/BGP config =="
 read -rp "Resource group [lab-zt-sdwan-s2]: " RG; RG="${RG:-lab-zt-sdwan-s2}"
-read -rp "hub-nva ZeroTier overlay IP: "    HUB_OVERLAY
-read -rp "onprem-nva ZeroTier overlay IP: " ONPREM_OVERLAY
+
+# Prefer the overlay IPs recorded by deploy.sh; prompt only as a fallback.
+ENV_FILE="${SCRIPT_DIR}/.zt-overlay.env"
+if [ -f "${ENV_FILE}" ]; then
+  # shellcheck source=/dev/null
+  source "${ENV_FILE}"
+  HUB_OVERLAY="${HUB_OVERLAY_IP:-}"
+  ONPREM_OVERLAY="${ONPREM_OVERLAY_IP:-}"
+  [ -n "${HUB_OVERLAY}" ] && [ -n "${ONPREM_OVERLAY}" ] && \
+    info "Overlay IPs from .zt-overlay.env — hub=${HUB_OVERLAY} onprem=${ONPREM_OVERLAY}"
+fi
+if [ -z "${HUB_OVERLAY:-}" ] || [ -z "${ONPREM_OVERLAY:-}" ]; then
+  read -rp "hub-nva ZeroTier overlay IP [172.27.0.10]: "    HUB_OVERLAY;    HUB_OVERLAY="${HUB_OVERLAY:-172.27.0.10}"
+  read -rp "onprem-nva ZeroTier overlay IP [172.27.0.20]: " ONPREM_OVERLAY; ONPREM_OVERLAY="${ONPREM_OVERLAY:-172.27.0.20}"
+fi
 [ -n "${HUB_OVERLAY}" ] && [ -n "${ONPREM_OVERLAY}" ] || { echo "Both overlay IPs are required." >&2; exit 1; }
 
 info "Reading Route Server BGP IPs from the deployment outputs..."
