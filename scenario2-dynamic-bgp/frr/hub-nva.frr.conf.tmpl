@@ -19,22 +19,48 @@
 ! =========================================================================
 frr defaults traditional
 !
+! Azure's virtual router is reached through the VM's default route. Allow FRR
+! nexthop tracking to resolve the multihop Route Server peers through it.
+ip nht resolve-via-default
+!
+ip prefix-list AZURE-PREFIXES seq 10 permit 10.0.0.0/24
+ip prefix-list AZURE-PREFIXES seq 20 permit 10.0.1.0/24
+ip prefix-list AZURE-PREFIXES seq 30 permit 10.0.2.0/24
+ip prefix-list ONPREM-PREFIXES seq 10 permit 192.168.100.0/24
+!
+route-map FROM-ROUTE-SERVER permit 10
+ match ip address prefix-list AZURE-PREFIXES
+route-map TO-ROUTE-SERVER permit 10
+ match ip address prefix-list ONPREM-PREFIXES
+route-map FROM-ONPREM permit 10
+ match ip address prefix-list ONPREM-PREFIXES
+route-map TO-ONPREM permit 10
+ match ip address prefix-list AZURE-PREFIXES
+!
 router bgp __HUB_NVA_ASN__
  bgp router-id __HUB_NVA_IP__
- no bgp ebgp-requires-policy
  !
  ! --- Azure Route Server (two sessions, always ASN 65515) ---
  neighbor __ROUTE_SERVER_IP_1__ remote-as 65515
  neighbor __ROUTE_SERVER_IP_1__ ebgp-multihop 2
+ neighbor __ROUTE_SERVER_IP_1__ maximum-prefix 10
  neighbor __ROUTE_SERVER_IP_2__ remote-as 65515
  neighbor __ROUTE_SERVER_IP_2__ ebgp-multihop 2
+ neighbor __ROUTE_SERVER_IP_2__ maximum-prefix 10
  !
  ! --- On-prem NVA over the ZeroTier overlay ---
  neighbor __ONPREM_NVA_OVERLAY_IP__ remote-as __ONPREM_NVA_ASN__
+ neighbor __ONPREM_NVA_OVERLAY_IP__ maximum-prefix 1
  !
  address-family ipv4 unicast
   neighbor __ROUTE_SERVER_IP_1__ activate
+  neighbor __ROUTE_SERVER_IP_1__ route-map FROM-ROUTE-SERVER in
+  neighbor __ROUTE_SERVER_IP_1__ route-map TO-ROUTE-SERVER out
   neighbor __ROUTE_SERVER_IP_2__ activate
+  neighbor __ROUTE_SERVER_IP_2__ route-map FROM-ROUTE-SERVER in
+  neighbor __ROUTE_SERVER_IP_2__ route-map TO-ROUTE-SERVER out
   neighbor __ONPREM_NVA_OVERLAY_IP__ activate
+  neighbor __ONPREM_NVA_OVERLAY_IP__ route-map FROM-ONPREM in
+  neighbor __ONPREM_NVA_OVERLAY_IP__ route-map TO-ONPREM out
  exit-address-family
 !

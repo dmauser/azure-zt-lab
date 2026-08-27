@@ -2,17 +2,20 @@
 # Test/workload VM bootstrap for the ZeroTier Azure lab.
 # Installs common network troubleshooting tools and a tiny nginx page that
 # returns the hostname (handy for validating traffic flow across the overlay).
-package_upgrade: true
-
-packages:
-  - traceroute
-  - net-tools
-  - nmap
-  - hping3
-  - iperf3
-  - nginx
-  - speedtest-cli
-  - moreutils
-
 runcmd:
+  # Workload subnets use the NVA for explicit Internet egress. Wait for the NVA
+  # bootstrap to enable forwarding before installing troubleshooting packages.
+  - |
+    for attempt in $(seq 1 60); do
+      if curl -fsS --connect-timeout 5 https://packages.ubuntu.com/ >/dev/null; then
+        break
+      fi
+      if [ "$attempt" -eq 60 ]; then
+        echo "NVA Internet egress did not become ready" >&2
+        exit 1
+      fi
+      sleep 5
+    done
+  - apt-get update
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y traceroute net-tools nmap hping3 iperf3 nginx speedtest-cli moreutils
   - hostname > /var/www/html/index.html

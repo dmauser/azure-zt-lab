@@ -1,0 +1,12 @@
+* text=auto
+
+*.bicep text eol=lf
+*.md text eol=lf
+*.mmd text eol=lf
+*.sh text eol=lf
+*.tmpl text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+
+*.drawio text eol=lf
+*.png binary

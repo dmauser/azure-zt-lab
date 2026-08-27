@@ -10,27 +10,30 @@
 // ---------------------------------------------------------------------------
 
 @description('Name of the virtual network.')
+@minLength(1)
 param name string
 
 @description('Azure region for the VNet.')
 param location string = resourceGroup().location
 
 @description('Address space (CIDR blocks) for the VNet.')
-param addressPrefixes array
+param addressPrefixes string[]
 
-@description('''Subnets to create. Each item:
-{
+@sealed()
+type SubnetConfig = {
   name: string
-  prefix: string            // CIDR
-  nsgId: string (optional)  // NSG resource ID
-  routeTableId: string (optional) // Route Table resource ID
-}''')
-param subnets array
+  prefix: string
+  nsgId: string?
+  routeTableId: string?
+}
+
+@description('Subnets to create, with optional NSG and route-table resource IDs.')
+param subnets SubnetConfig[]
 
 @description('Resource tags.')
 param tags object = {}
 
-resource vnet 'Microsoft.Network/virtualNetworks@2023-11-01' = {
+resource vnet 'Microsoft.Network/virtualNetworks@2025-05-01' = {
   name: name
   location: location
   tags: tags
@@ -43,11 +46,11 @@ resource vnet 'Microsoft.Network/virtualNetworks@2023-11-01' = {
         name: s.name
         properties: {
           addressPrefix: s.prefix
-          networkSecurityGroup: contains(s, 'nsgId') && !empty(s.nsgId) ? {
-            id: s.nsgId
+          networkSecurityGroup: !empty(s.?nsgId) ? {
+            id: s.?nsgId
           } : null
-          routeTable: contains(s, 'routeTableId') && !empty(s.routeTableId) ? {
-            id: s.routeTableId
+          routeTable: !empty(s.?routeTableId) ? {
+            id: s.?routeTableId
           } : null
         }
       }

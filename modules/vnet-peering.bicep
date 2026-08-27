@@ -4,9 +4,11 @@
 // ---------------------------------------------------------------------------
 
 @description('Name of the local VNet that owns this peering.')
+@minLength(1)
 param localVnetName string
 
 @description('Name for the peering resource.')
+@minLength(1)
 param peeringName string
 
 @description('Resource ID of the remote VNet.')
@@ -24,7 +26,7 @@ param allowGatewayTransit bool = false
 @description('Use the remote VNet gateway/Route Server (set on the spoke side).')
 param useRemoteGateways bool = false
 
-resource peering 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2023-11-01' = {
+resource peering 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2025-05-01' = {
   name: '${localVnetName}/${peeringName}'
   properties: {
     allowVirtualNetworkAccess: allowVirtualNetworkAccess

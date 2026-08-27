@@ -2,8 +2,8 @@
 
 [ZeroTier](https://www.zerotier.com/) provides the encrypted overlay network that
 connects the **hub-nva** (Azure) and **onprem-nva** (simulated on‑premises) in both
-lab scenarios. This guide creates a network and explains the one manual step you
-perform in the ZeroTier portal after each deployment.
+lab scenarios. This guide creates a network and explains automatic member
+authorization plus the manual portal fallback.
 
 ## 1. Create a free account and a network
 
@@ -45,8 +45,9 @@ members until you approve them. You can do this **automatically via an API token
 
 ### 3a. Automated authorization via API token (recommended)
 
-`deploy.sh` can authorize both members and pin their overlay IPs for you using the
-[ZeroTier Central REST API](https://docs.zerotier.com/api/tokens/):
+`deploy.sh` can authorize both members and pin their overlay IPs through the
+**Legacy Central API v1** using a token created according to the current
+[ZeroTier token guidance](https://docs.zerotier.com/tokens/):
 
 1. Create a token at [my.zerotier.com](https://my.zerotier.com/) →
    **Account → API Access Tokens → New Token**. Copy it once (it is shown only once).
@@ -63,6 +64,11 @@ members until you approve them. You can do this **automatically via an API token
 and a **Managed Route** covering the pinned IPs (see the table above). The token is
 never echoed or committed. If you press Enter to skip the token, deploy falls back
 to the manual steps below.
+
+> ZeroTier's New Central API v2 uses service accounts and plan-dependent
+> features. These labs intentionally retain Legacy Central API v1 so free and
+> legacy users can follow the same workflow. Do not use a New Central service
+> account token with `scripts/zt-api.sh`.
 
 > You can also run the helper standalone:
 > ```bash
@@ -83,7 +89,8 @@ to the manual steps below.
 
 ## 4. Verify the overlay
 
-SSH to each NVA (via its public IP) and confirm the tunnel is up:
+Use Azure Run Command, or SSH to each NVA through its source-restricted public
+IP, and confirm the tunnel is up:
 
 ```bash
 sudo zerotier-cli listnetworks      # STATUS should be OK

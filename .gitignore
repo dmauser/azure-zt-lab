@@ -12,6 +12,8 @@ azure-cli.log
 # ZeroTier overlay state written by deploy.sh (overlay IPs only, no secrets)
 .zt-overlay.env
 **/.zt-overlay.env
+.deployment.env
+**/.deployment.env
 
 # Compiled Bicep (ARM JSON) output
 scenario*/main.json

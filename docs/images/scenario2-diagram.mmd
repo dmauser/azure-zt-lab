@@ -1,27 +1,27 @@
 flowchart TB
     %% ---- Spokes (top) ----
-    subgraph S1["spoke1-vnet &#183; 10.0.1.0/24"]
-        S1VM["spoke1-vm1"]
+    subgraph S1["spoke1-vnet · 10.0.1.0/24"]
+        S1VM["spoke1-vm1 · private<br/>BGP site routes + NVA default egress"]
     end
-    subgraph S2["spoke2-vnet &#183; 10.0.2.0/24"]
-        S2VM["spoke2-vm1"]
+    subgraph S2["spoke2-vnet · 10.0.2.0/24"]
+        S2VM["spoke2-vm1 · private<br/>BGP site routes + NVA default egress"]
     end
 
     %% ---- Hub (middle) ----
-    subgraph HUB["hub-vnet &#183; 10.0.0.0/24"]
+    subgraph HUB["hub-vnet · 10.0.0.0/24"]
         direction LR
-        HVM["hub-vm1<br/>subnet1 &#183; 10.0.0.0/27"]
-        HNVA["hub-nva &#183; FRR<br/>AS 65001 &#183; nvasubnet .36"]
-        RS["Azure Route Server<br/>AS 65515<br/>RouteServerSubnet &#183; 10.0.0.64/27"]
+        HVM["hub-vm1 · private<br/>subnet1 · 10.0.0.0/27"]
+        HNVA["hub-nva · FRR<br/>AS 65001 · nvasubnet .36"]
+        RS["Azure Route Server<br/>AS 65515<br/>RouteServerSubnet · 10.0.0.64/27"]
         HNVA <==>|"BGP<br/>eBGP-multihop"| RS
     end
 
     %% ---- On-prem (bottom) ----
-    subgraph OP["on-prem-vnet &#183; 192.168.100.0/24"]
+    subgraph OP["on-prem-vnet · 192.168.100.0/24"]
         direction LR
-        OPNVA["onprem-nva &#183; FRR<br/>AS 65002 &#183; nvasubnet .36"]
-        OPVM["onprem-vm1<br/>subnet1 &#183; 192.168.100.0/27"]
-        OPUDR{{"onprem-udr<br/>RFC1918 &#8594; .36 (static)"}}
+        OPNVA["onprem-nva · FRR<br/>AS 65002 · nvasubnet .36"]
+        OPVM["onprem-vm1 · private<br/>subnet1 · 192.168.100.0/27"]
+        OPUDR{{"onprem-udr<br/>site + default egress → .36"}}
         OPVM -. UDR .-> OPUDR
     end
 

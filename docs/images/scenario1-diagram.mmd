@@ -3,7 +3,7 @@ flowchart TB
     subgraph OP["on-prem-vnet · 192.168.100.0/24"]
         direction LR
         OPVM["onprem-vm1<br/>subnet1 · 192.168.100.0/27"]
-        OPUDR{{"onprem-udr<br/>RFC1918 → .36"}}
+        OPUDR{{"onprem-udr<br/>site + default egress → .36"}}
         OPNVA["onprem-nva<br/>nvasubnet .36 · IP-fwd"]
         OPVM -. UDR .-> OPUDR
     end
@@ -13,20 +13,20 @@ flowchart TB
         direction LR
         HNVA["hub-nva<br/>nvasubnet .36 · IP-fwd"]
         HVM["hub-vm1<br/>subnet1 · 10.0.0.0/27"]
-        HUDR{{"hub-udr<br/>RFC1918 → .36"}}
+        HUDR{{"hub-udr<br/>site + default egress → .36"}}
         HVM -. UDR .-> HUDR
     end
 
     %% ---- Spokes (bottom) ----
     subgraph S1["spoke1-vnet · 10.0.1.0/24"]
-        S1VM["spoke1-vm1<br/>10.0.1.0/27 → hub-nva"]
+        S1VM["spoke1-vm1 · private<br/>10.0.1.0/27 → hub-nva"]
     end
     subgraph S2["spoke2-vnet · 10.0.2.0/24"]
-        S2VM["spoke2-vm1<br/>10.0.2.0/27 → hub-nva"]
+        S2VM["spoke2-vm1 · private<br/>10.0.2.0/27 → hub-nva"]
     end
 
     %% ---- Links ----
-    OPNVA <== "ZeroTier overlay (encrypted)" ==> HNVA
+    OPNVA <== "ZeroTier overlay · persistent guest routes" ==> HNVA
     HVM <-->|"VNet peering"| S1VM
     HVM <-->|"VNet peering"| S2VM
 

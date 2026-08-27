@@ -5,7 +5,7 @@
 # Authorizes a single member and pins a fixed overlay IP via a raw curl call.
 # For the reusable helper the labs actually use, see scripts/zt-api.sh.
 #
-# Create an API token at https://my.zerotier.com/ -> Account -> API Access Tokens
+# Token guidance: https://docs.zerotier.com/tokens/
 # ===========================================================================
 set -euo pipefail
 

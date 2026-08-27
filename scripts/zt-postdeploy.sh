@@ -7,19 +7,34 @@
 # via the ZeroTier Central REST API, then records them in a gitignored
 # .zt-overlay.env for apply-frr.sh / verification to consume.
 #
-# If no API token is supplied it degrades gracefully: it prints the manual
-# portal steps and exits cleanly (the lab still works, just not hands-free).
+# Return codes: 0 = confirmed, 2 = manual authorization required, 1 = failure.
 #
 # Requires (on the deploy host, only when a token is used): curl, jq.
 # ===========================================================================
 
+_ZT_POSTDEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lab-common.sh
+source "${_ZT_POSTDEPLOY_DIR}/lab-common.sh"
+
 # _zt_node_id RG VM  ->  the 10-hex ZeroTier node/member ID (or empty)
 _zt_node_id() {
   local rg="$1" vm="$2" msg
-  msg="$(az vm run-command invoke -g "$rg" -n "$vm" --command-id RunShellScript \
-    --scripts "sudo zerotier-cli info | awk '{print \$3}'" \
-    --query 'value[0].message' -o tsv 2>/dev/null || true)"
-  printf '%s' "$msg" | grep -oiE '[0-9a-f]{10}' | head -n1
+  msg="$(az_vm_run "$rg" "$vm" \
+    "sudo zerotier-cli info | awk '{print \"ZT_NODE_ID=\" \$3}'" 2>/dev/null || true)"
+  printf '%s\n' "$msg" | sed -n 's/^ZT_NODE_ID=\([0-9A-Fa-f]\{10\}\)$/\1/p' | head -n1
+}
+
+_zt_wait_node_id() {
+  local rg="$1" vm="$2" _attempt node
+  for _attempt in $(seq 1 30); do
+    node="$(_zt_node_id "$rg" "$vm")"
+    if [[ "$node" =~ ^[0-9A-Fa-f]{10}$ ]]; then
+      printf '%s\n' "$node"
+      return 0
+    fi
+    sleep 3
+  done
+  return 1
 }
 
 # _zt_manual_hint NETWORK_ID  ->  print the fallback manual instructions
@@ -39,7 +54,8 @@ EOF
 # Authorizes both NVAs, pins their overlay IPs, and writes OUT_ENV.
 zt_postdeploy() {
   local rg="$1" netid="$2" out_env="$3"
-  local hub_ip="${4:-172.27.0.10}" onprem_ip="${5:-172.27.0.20}"
+  local hub_ip="${HUB_OVERLAY_IP:-${4:-172.27.0.10}}"
+  local onprem_ip="${ONPREM_OVERLAY_IP:-${5:-172.27.0.20}}"
   local here; here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   # shellcheck source=/dev/null
   source "${here}/zt-api.sh"
@@ -51,49 +67,60 @@ zt_postdeploy() {
   fi
   if [ -z "$token" ]; then
     _zt_manual_hint "$netid"
-    return 0
+    return 2
   fi
   export ZEROTIER_API_TOKEN="$token"
 
   if ! zt_require; then
-    echo "[warn] curl/jq not available on this host; falling back to manual authorization." >&2
-    _zt_manual_hint "$netid"
-    return 0
+    return 1
   fi
 
   # Deterministic overlay IPs (overridable). Must sit inside the network's managed route.
   local _h _o
-  read -rp "hub-nva overlay IP [${hub_ip}]: "    _h; hub_ip="${_h:-$hub_ip}"
-  read -rp "onprem-nva overlay IP [${onprem_ip}]: " _o; onprem_ip="${_o:-$onprem_ip}"
+  if [ -t 0 ] && [ "${LAB_NONINTERACTIVE:-0}" != "1" ]; then
+    read -rp "hub-nva overlay IP [${hub_ip}]: " _h
+    hub_ip="${_h:-$hub_ip}"
+    read -rp "onprem-nva overlay IP [${onprem_ip}]: " _o
+    onprem_ip="${_o:-$onprem_ip}"
+  fi
+  valid_ipv4 "$hub_ip" || { echo "[fail] Invalid hub overlay IP: ${hub_ip}" >&2; return 1; }
+  valid_ipv4 "$onprem_ip" || { echo "[fail] Invalid on-prem overlay IP: ${onprem_ip}" >&2; return 1; }
+  [ "$hub_ip" != "$onprem_ip" ] ||
+    { echo "[fail] Hub and on-prem overlay IPs must be different." >&2; return 1; }
 
   echo "[info] Resolving ZeroTier node IDs from the NVAs..."
   local hub_node onprem_node
-  hub_node="$(_zt_node_id "$rg" hub-nva)"
-  onprem_node="$(_zt_node_id "$rg" onprem-nva)"
+  hub_node="$(_zt_wait_node_id "$rg" hub-nva || true)"
+  onprem_node="$(_zt_wait_node_id "$rg" onprem-nva || true)"
   if [ -z "$hub_node" ] || [ -z "$onprem_node" ]; then
-    echo "[warn] Could not read both node IDs yet (NVAs may still be joining)." >&2
-    _zt_manual_hint "$netid"
-    return 0
+    echo "[fail] Could not read both ZeroTier node IDs after 90 seconds." >&2
+    return 1
   fi
 
   echo "[info] Authorizing hub-nva (${hub_node}) -> ${hub_ip}"
   if ! zt_authorize_member "$netid" "$hub_node" "hub-nva" "$hub_ip"; then
-    _zt_manual_hint "$netid"; return 0
+    return 1
   fi
   echo "[info] Authorizing onprem-nva (${onprem_node}) -> ${onprem_ip}"
   if ! zt_authorize_member "$netid" "$onprem_node" "onprem-nva" "$onprem_ip"; then
-    _zt_manual_hint "$netid"; return 0
+    return 1
   fi
 
   # Confirm the controller applied the assignment; capture whatever it returns.
   local hub_actual onprem_actual
-  hub_actual="$(zt_wait_member_online "$netid" "$hub_node" 90 || true)"
-  onprem_actual="$(zt_wait_member_online "$netid" "$onprem_node" 90 || true)"
-  hub_ip="${hub_actual:-$hub_ip}"
-  onprem_ip="${onprem_actual:-$onprem_ip}"
+  hub_actual="$(zt_wait_member_online "$netid" "$hub_node" 120)" || return 1
+  onprem_actual="$(zt_wait_member_online "$netid" "$onprem_node" 120)" || return 1
+  [ "$hub_actual" = "$hub_ip" ] ||
+    { echo "[fail] hub-nva received ${hub_actual}, expected ${hub_ip}" >&2; return 1; }
+  [ "$onprem_actual" = "$onprem_ip" ] ||
+    { echo "[fail] onprem-nva received ${onprem_actual}, expected ${onprem_ip}" >&2; return 1; }
 
+  umask 077
   cat > "$out_env" <<EOF
-# Generated by deploy.sh — ZeroTier overlay IPs (no secrets; safe to delete).
+# Generated by deploy.sh. Contains ZeroTier resource identifiers, not tokens.
+ZT_NETWORK_ID=${netid}
+HUB_NODE_ID=${hub_node}
+ONPREM_NODE_ID=${onprem_node}
 HUB_OVERLAY_IP=${hub_ip}
 ONPREM_OVERLAY_IP=${onprem_ip}
 EOF

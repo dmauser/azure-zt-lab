@@ -1,13 +1,15 @@
 # Azure ZeroTier SD‑WAN Lab
 
+[![Repository quality](https://github.com/dmauser/azure-zt-lab/actions/workflows/quality.yml/badge.svg)](https://github.com/dmauser/azure-zt-lab/actions/workflows/quality.yml)
+
 Practical, deploy‑it‑yourself labs that connect a simulated **on‑premises** site
 to an Azure **hub‑and‑spoke** network over an encrypted
 [ZeroTier](https://www.zerotier.com/) overlay — first with **static routing**,
 then with **dynamic BGP** via **Azure Route Server**.
 
-Everything is **Bicep** (declarative IaC) with thin `bash` wrappers that prompt
-for inputs — nothing is hardcoded and there are no external template
-dependencies.
+Everything is **Bicep** (declarative IaC) with local cloud-init and thin `bash`
+wrappers. Inputs can be supplied interactively, with flags, or through
+environment variables; no secrets are stored in the repository.
 
 ## What is ZeroTier?
 
@@ -38,10 +40,14 @@ flowchart LR
 Both scenarios share the same topology (hub + two spokes + on‑prem, joined by
 ZeroTier). The **only** difference is how routes are distributed:
 
-* **Scenario 1** — you write static UDRs (`RFC1918 → NVA`). Deterministic and
-  dependency‑free; a great starting point.
-* **Scenario 2** — Azure Route Server + FRR speak BGP, so prefixes propagate
-  automatically and the Azure‑side UDRs disappear. Closer to production SD‑WAN.
+* **Scenario 1** — Azure UDRs deliver site traffic to each NVA, and persistent
+  Linux routes forward the remote prefix through the ZeroTier peer.
+* **Scenario 2** — Azure Route Server + FRR speak filtered BGP, so site prefixes
+  propagate automatically. Azure UDRs are retained only for explicit Internet
+  egress through the hub NVA.
+
+Both scenarios use SSH keys, private-only workload VMs, public IPs only on the
+two NVAs, and explicit workload egress through an NVA.
 
 ## Repository layout
 
@@ -49,7 +55,7 @@ ZeroTier). The **only** difference is how routes are distributed:
 azure-zt-lab/
 ├── modules/                  # reusable Bicep modules (vnet, nsg, linux-vm,
 │                             #   route-table, vnet-peering, route-server)
-├── scripts/                  # cloud-init for NVAs + workload VMs, samples
+├── scripts/                  # cloud-init, shared automation, validation
 ├── docs/
 │   ├── zerotier-setup.md     # create the ZeroTier network + authorize members
 │   └── images/               # diagrams + screenshots
@@ -67,9 +73,9 @@ run locally instead, install:
 | --- | --- |
 | Azure subscription + [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) | run `az login` first |
 | [Bicep](https://learn.microsoft.com/azure/azure-resource-manager/bicep/install) | bundled with a recent `az` |
-| **ZeroTier** account, network, and **API token** | follow [docs/zerotier-setup.md](./docs/zerotier-setup.md); keep your **Network ID** handy |
+| **ZeroTier** account, network, and optional **Legacy Central API token** | follow [docs/zerotier-setup.md](./docs/zerotier-setup.md); keep your **Network ID** handy |
 | `bash`, `curl`, `base64`, `jq` | `jq` is required by the ZeroTier API automation |
-| OpenSSH client | for the SSH verification steps |
+| OpenSSH client and SSH key pair | create one with `ssh-keygen -t ed25519`; the public key is passed to Bicep |
 
 ## Quick start
 
@@ -77,15 +83,18 @@ run locally instead, install:
 # 1. Set up your ZeroTier network + API token (once) — see docs/zerotier-setup.md
 export ZEROTIER_API_TOKEN="<your-token>"   # enables hands-free member authorization
 
-# 2. Pick a scenario and deploy:
+# 2. Create an SSH key if needed:
+ssh-keygen -t ed25519
+
+# 3. Pick a scenario and deploy:
 cd scenario1-static-routing        # or scenario2-dynamic-bgp
-./deploy.sh                        # prompts for creds + ZeroTier Network ID,
+./deploy.sh                        # prompts for SSH key + ZeroTier Network ID,
                                    # then authorizes both NVAs via the API
 
-# 3. Scenario 2 only — bring up BGP:
+# 4. Scenario 2 only — bring up BGP:
 #    ./apply-frr.sh               # auto-reads the pinned overlay IPs
 
-# 4. Verify, then tear down (see the scenario README):
+# 5. Verify, then tear down (see the scenario README):
 ./cleanup.sh
 ```
 
@@ -96,12 +105,33 @@ cd scenario1-static-routing        # or scenario2-dynamic-bgp
 Each scenario README has its own diagram, address plan, verification commands,
 and teardown steps.
 
+## Validate locally
+
+Run all non-deployment checks before opening a pull request:
+
+```bash
+bash scripts/validate.sh
+```
+
+The validator builds and lints Bicep, checks Bash and ShellCheck, validates
+cloud-init when available, resolves local Markdown links, and renders Mermaid
+sources when `mmdc` is installed. The same checks run in GitHub Actions.
+
+The `.mmd` files under `docs/images/` are the diagram source of truth. Regenerate
+the committed PNGs with:
+
+```bash
+mmdc -i docs/images/scenario1-diagram.mmd -o docs/images/scenario1-diagram.png -b white -s 3
+mmdc -i docs/images/scenario2-diagram.mmd -o docs/images/scenario2-diagram.png -b white -s 3
+```
+
 ## Cost & cleanup
 
-These labs create real, billable resources (six small Ubuntu VMs, public IPs,
-and — in Scenario 2 — an **Azure Route Server**, billed hourly). Always run the
-scenario's `./cleanup.sh` when you're done, and remove the NVAs from your
-ZeroTier network in the portal.
+These labs create real, billable resources: six small Ubuntu VMs, two NVA
+public IPs, disks, and networking. Scenario 2 also creates an **Azure Route
+Server** and its public IP, typically the largest cost. Run the scenario's
+`./cleanup.sh`; it can also remove the two recorded ZeroTier members when a
+Legacy Central API token is available.
 
 ## References
 

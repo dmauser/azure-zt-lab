@@ -14,8 +14,10 @@ deterministic. For the dynamic/BGP equivalent, see
 1. **Deploy** the infrastructure — `./deploy.sh` (~5–8 min).
 2. **Authorize** the two NVAs on the ZeroTier network — automatic when you supply
    an API token, otherwise manual in the portal.
-3. **Verify** connectivity across the overlay (ping/curl a spoke from on‑prem).
-4. **Clean up** — `./cleanup.sh`.
+3. **Apply routes** — automatic after API authorization, or run
+   `./apply-routes.sh` after manual authorization.
+4. **Verify** persistent NVA routes and bidirectional workload connectivity.
+5. **Clean up** — `./cleanup.sh`.
 
 Overlay IP plan (pinned automatically by `deploy.sh`):
 
@@ -26,33 +28,9 @@ Overlay IP plan (pinned automatically by `deploy.sh`):
 
 ## Network diagram
 
-```mermaid
-flowchart LR
-    subgraph OP["on‑prem‑vnet 192.168.100.0/24"]
-        OPVM["onprem-vm1<br/>subnet1 192.168.100.0/27"]
-        OPNVA["onprem-nva<br/>nvasubnet .36 · IP‑fwd"]
-        OPUDR{{"onprem-udr<br/>RFC1918 → .36"}}
-        OPVM -. UDR .-> OPUDR
-    end
+![Scenario 1 network diagram](../docs/images/scenario1-diagram.png)
 
-    subgraph HUB["hub‑vnet 10.0.0.0/24"]
-        HVM["hub-vm1<br/>subnet1 10.0.0.0/27"]
-        HNVA["hub-nva<br/>nvasubnet .36 · IP‑fwd"]
-        HUDR{{"hub-udr<br/>RFC1918 → .36"}}
-        HVM -. UDR .-> HUDR
-    end
-
-    subgraph S1["spoke1‑vnet 10.0.1.0/24"]
-        S1VM["spoke1-vm1<br/>10.0.1.0/27 → hub-nva"]
-    end
-    subgraph S2["spoke2‑vnet 10.0.2.0/24"]
-        S2VM["spoke2-vm1<br/>10.0.2.0/27 → hub-nva"]
-    end
-
-    OPNVA <===>|"ZeroTier overlay<br/>(encrypted)"| HNVA
-    S1VM <-->|"VNet peering"| HVM
-    S2VM <-->|"VNet peering"| HVM
-```
+Editable source: [`scenario1-diagram.mmd`](../docs/images/scenario1-diagram.mmd)
 
 | VNet | Address space | Subnets | Notes |
 | --- | --- | --- | --- |
@@ -71,14 +49,18 @@ flowchart LR
   needlessly hairpins through the NVA.
 * NVAs use **static private IPs** so the UDR next‑hops are deterministic, and
   have **IP forwarding** enabled on the NIC.
+* Each NVA has a persistent systemd route to the remote site through the
+  opposite ZeroTier address. Azure UDRs alone do not configure the Linux RIB.
+* Workload default routes use the local NVA for explicit, masqueraded Internet
+  egress; no workload VM has a public IP.
 
 ## Prerequisites
 
 * An Azure subscription and the [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) (`az login`).
 * [Bicep](https://learn.microsoft.com/azure/azure-resource-manager/bicep/install) (bundled with recent `az`).
-* A ZeroTier network **and API token** — see [../docs/zerotier-setup.md](../docs/zerotier-setup.md). Have your **Network ID** ready.
+* A ZeroTier network and optional **Legacy Central API token** — see [../docs/zerotier-setup.md](../docs/zerotier-setup.md). Have your **Network ID** ready.
 * `bash`, `curl`, `base64`, and `jq` (Cloud Shell has all four; `jq` is used by the authorization automation).
-* An **OpenSSH client** for the verification steps.
+* An **OpenSSH client** and SSH public key (`ssh-keygen -t ed25519`).
 
 ## Deploy
 
@@ -90,25 +72,38 @@ export ZEROTIER_API_TOKEN="<your-token>"   # optional; enables auto-authorizatio
 
 `deploy.sh` will:
 
-1. Prompt for resource group, region, VM size, **admin username/password**, and
-   your **ZeroTier Network ID** (nothing is hardcoded).
+1. Prompt for resource group, region, VM size, admin username, **SSH public
+   key**, allowed SSH source, and your **ZeroTier Network ID**.
 2. Lock SSH to your current public IP (auto‑detected, override‑able).
-3. Base64‑encode the cloud‑init files and deploy `main.bicep`.
-4. Install ZeroTier on both NVAs and join them to your network.
+3. Build Bicep, validate the ARM deployment, display `what-if`, then deploy with
+   an exact timestamped deployment name.
+4. Wait for cloud-init, install ZeroTier on both NVAs, and join the network.
 5. **Authorize both NVAs and pin their overlay IPs** (`172.27.0.10` / `172.27.0.20`)
    via the ZeroTier API when a token is available — otherwise it prints the manual
    portal steps (see [../docs/zerotier-setup.md](../docs/zerotier-setup.md)).
+6. Install and verify persistent remote-site routes on both NVAs.
+
+For repeatable runs, use `./deploy.sh --help`. Flags have matching environment
+variables, and `LAB_SKIP_WHAT_IF=1` is available for an already-reviewed rerun.
+If authorization is left manual, `deploy.sh` exits with status `2` to indicate
+that routing is pending rather than complete.
 
 ## Verify
 
 ```bash
-# On each NVA (SSH via its public IP from the deployment outputs):
-sudo zerotier-cli listnetworks          # STATUS = OK
-ping 172.27.0.20                         # hub-nva -> onprem-nva across the overlay
+# Overlay and persistent guest route:
+az vm run-command invoke -g <rg> -n hub-nva --command-id RunShellScript \
+  --scripts "sudo zerotier-cli listnetworks; ip route show 192.168.100.0/24"
+az vm run-command invoke -g <rg> -n onprem-nva --command-id RunShellScript \
+  --scripts "ip route show 10.0.0.0/16; ping -c 4 172.27.0.10"
 
-# End-to-end (SSH to onprem-vm1, ping a spoke workload):
-ping 10.0.1.4                            # onprem-vm1 -> spoke1-vm1
-curl http://10.0.2.4                     # onprem-vm1 -> spoke2-vm1 (nginx returns hostname)
+# End-to-end from the private on-prem workload:
+az vm run-command invoke -g <rg> -n onprem-vm1 --command-id RunShellScript \
+  --scripts "ping -c 4 10.0.1.4; curl --fail http://10.0.2.4"
+
+# Reverse path from a private spoke workload:
+az vm run-command invoke -g <rg> -n spoke1-vm1 --command-id RunShellScript \
+  --scripts "ping -c 4 192.168.100.4; curl --fail http://192.168.100.4"
 
 # Confirm the UDRs are programmed on a spoke NIC:
 az network nic show-effective-route-table -g <rg> -n spoke1-vm1-nic \
@@ -121,19 +116,27 @@ az network nic show-effective-route-table -g <rg> -n spoke1-vm1-nic \
 | Type | Resources |
 | --- | --- |
 | VNets | hub, spoke1, spoke2, onprem (+ subnets) |
-| NSGs | `default-nsg` (SSH from your IP), `nva-nsg` (RFC1918 + SSH) |
-| Route tables | hub‑udr, spoke1‑udr, spoke2‑udr, onprem‑udr |
-| NVAs | `hub-nva`, `onprem-nva` (IP‑fwd, static IP, public IP) |
-| VMs | `hub-vm1`, `spoke1-vm1`, `spoke2-vm1`, `onprem-vm1` |
+| NSGs | `default-nsg` for private workloads; `nva-nsg` for RFC1918 forwarding and source-restricted SSH |
+| Route tables | hub‑udr, spoke1‑udr, spoke2‑udr, onprem‑udr, including explicit default egress |
+| NVAs | `hub-nva`, `onprem-nva` (IP‑forwarding, static private IP, public administration/egress IP) |
+| VMs | four private-only workload VMs |
 | Peerings | spoke1 ↔ hub, spoke2 ↔ hub |
 
 ## Clean up
 
 ```bash
-./cleanup.sh          # deletes the resource group
+./cleanup.sh          # confirms resource-group deletion and optional member removal
+./cleanup.sh --wait   # wait until Azure confirms deletion
 ```
 
-Also remove `hub-nva` / `onprem-nva` from your ZeroTier network in the portal.
+> **Cost:** six small Ubuntu VMs, managed disks, and two NVA public IPs. Delete
+> the resource group when you're done to avoid ongoing charges.
 
-> **Cost:** six small Ubuntu VMs plus public IPs. Delete the resource group when
-> you're done to avoid ongoing charges.
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| Deployment pauses at package installation | `az vm run-command invoke -g <rg> -n hub-nva --command-id RunShellScript --scripts "sudo cloud-init status --long"` |
+| ZeroTier member is missing or unauthorized | Confirm the 16-character network ID, managed route, token scope, and `sudo zerotier-cli listnetworks` output. |
+| Remote-site route is absent | Re-run `./apply-routes.sh`; inspect `systemctl status zt-lab-static-routes` on the affected NVA. |
+| One-way workload connectivity | Check both NVA guest routes, NIC IP forwarding, effective UDRs, and `sysctl net.ipv4.ip_forward`. |

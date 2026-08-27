@@ -16,15 +16,33 @@
 ! =========================================================================
 frr defaults traditional
 !
+! Install the advertised aggregate in the RIB. Add an explicit route for the
+! workload subnet through Azure's first-hop router so the aggregate's Null0
+! route cannot blackhole traffic between the NVA and workload subnets.
+ip route 192.168.100.0/27 192.168.100.33
+ip route 192.168.100.0/24 Null0 254
+!
+ip prefix-list AZURE-PREFIXES seq 10 permit 10.0.0.0/24
+ip prefix-list AZURE-PREFIXES seq 20 permit 10.0.1.0/24
+ip prefix-list AZURE-PREFIXES seq 30 permit 10.0.2.0/24
+ip prefix-list ONPREM-PREFIXES seq 10 permit 192.168.100.0/24
+!
+route-map FROM-HUB permit 10
+ match ip address prefix-list AZURE-PREFIXES
+route-map TO-HUB permit 10
+ match ip address prefix-list ONPREM-PREFIXES
+!
 router bgp __ONPREM_NVA_ASN__
  bgp router-id __ONPREM_NVA_IP__
- no bgp ebgp-requires-policy
  !
  ! --- Hub NVA over the ZeroTier overlay ---
  neighbor __HUB_NVA_OVERLAY_IP__ remote-as __HUB_NVA_ASN__
+ neighbor __HUB_NVA_OVERLAY_IP__ maximum-prefix 3
  !
  address-family ipv4 unicast
   network 192.168.100.0/24
   neighbor __HUB_NVA_OVERLAY_IP__ activate
+  neighbor __HUB_NVA_OVERLAY_IP__ route-map FROM-HUB in
+  neighbor __HUB_NVA_OVERLAY_IP__ route-map TO-HUB out
  exit-address-family
 !

@@ -12,7 +12,8 @@
 //   * Route Server advertises the Azure VNet prefixes to hub-nva and injects
 //     on-prem prefixes (learned from hub-nva) into the hub + peered spokes.
 //   * Gateway transit on the hub<->spoke peerings lets spokes use the Route
-//     Server, so NO static UDRs are needed on the Azure side.
+//     Server, so no static site-prefix UDRs are needed on the Azure side.
+//     Default-route UDRs provide explicit Internet egress through hub-nva.
 //   * The on-prem side has no Route Server, so onprem keeps a static UDR that
 //     points RFC1918 at its local NVA (the "customer edge").
 //
@@ -28,16 +29,19 @@ targetScope = 'resourceGroup'
 param location string = resourceGroup().location
 
 @description('VM size for all VMs and NVAs.')
+@minLength(1)
 param vmSize string = 'Standard_DS1_v2'
 
 @description('Admin username for all VMs.')
+@minLength(1)
 param adminUsername string
 
-@description('Admin password for all VMs.')
-@secure()
-param adminPassword string
+@description('SSH public key for the admin account on all VMs.')
+@minLength(20)
+param sshPublicKey string
 
 @description('Your public IP (CIDR or single IP) allowed to SSH into the lab.')
+@minLength(7)
 param allowedSshSourceIp string
 
 @description('Base64-encoded cloud-init for the NVAs (scripts/cloud-init-nva.yaml).')
@@ -49,6 +53,8 @@ param nvaCloudInit string
 param toolsCloudInit string
 
 @description('BGP ASN for the hub NVA (peers the Route Server). Must not be 65515.')
+@minValue(1)
+@maxValue(4294967294)
 param hubNvaAsn int = 65001
 
 @description('Resource tags applied to every resource.')
@@ -74,6 +80,12 @@ var onpremNvaRoutes = [
   { name: 'to-10-net', prefix: '10.0.0.0/8', nextHopType: 'VirtualAppliance', nextHopIp: onpremNvaIp }
   { name: 'to-172-net', prefix: '172.16.0.0/12', nextHopType: 'VirtualAppliance', nextHopIp: onpremNvaIp }
   { name: 'to-192-net', prefix: '192.168.0.0/16', nextHopType: 'VirtualAppliance', nextHopIp: onpremNvaIp }
+  { name: 'internet-egress', prefix: '0.0.0.0/0', nextHopType: 'VirtualAppliance', nextHopIp: onpremNvaIp }
+]
+
+// Azure site prefixes remain dynamic; this UDR handles Internet egress only.
+var hubNvaEgressRoute = [
+  { name: 'internet-egress', prefix: '0.0.0.0/0', nextHopType: 'VirtualAppliance', nextHopIp: hubNvaIp }
 ]
 
 // --------------------------- Security Groups -------------------------------
@@ -84,21 +96,7 @@ module workloadNsg '../modules/nsg.bicep' = {
     name: 'default-nsg'
     location: location
     tags: tags
-    securityRules: [
-      {
-        name: 'allow-ssh-inbound'
-        properties: {
-          priority: 1000
-          direction: 'Inbound'
-          access: 'Allow'
-          protocol: 'Tcp'
-          sourceAddressPrefix: allowedSshSourceIp
-          sourcePortRange: '*'
-          destinationAddressPrefix: '*'
-          destinationPortRange: '22'
-        }
-      }
-    ]
+    securityRules: []
   }
 }
 
@@ -136,6 +134,19 @@ module nvaNsg '../modules/nsg.bicep' = {
         }
       }
       {
+        name: 'allow-rfc1918-internet-forward'
+        properties: {
+          priority: 325
+          direction: 'Inbound'
+          access: 'Allow'
+          protocol: '*'
+          sourceAddressPrefixes: rfc1918Prefixes
+          sourcePortRange: '*'
+          destinationAddressPrefix: 'Internet'
+          destinationPortRange: '*'
+        }
+      }
+      {
         name: 'allow-ssh-inbound'
         properties: {
           priority: 330
@@ -164,9 +175,39 @@ module onpremUdr '../modules/route-table.bicep' = {
   }
 }
 
+module hubEgressUdr '../modules/route-table.bicep' = {
+  name: 'hub-egress-udr'
+  params: {
+    name: 'hub-egress-udr'
+    location: location
+    tags: tags
+    routes: hubNvaEgressRoute
+  }
+}
+
+module spoke1EgressUdr '../modules/route-table.bicep' = {
+  name: 'spoke1-egress-udr'
+  params: {
+    name: 'spoke1-egress-udr'
+    location: location
+    tags: tags
+    routes: hubNvaEgressRoute
+  }
+}
+
+module spoke2EgressUdr '../modules/route-table.bicep' = {
+  name: 'spoke2-egress-udr'
+  params: {
+    name: 'spoke2-egress-udr'
+    location: location
+    tags: tags
+    routes: hubNvaEgressRoute
+  }
+}
+
 // --------------------------- Virtual Networks ------------------------------
-// hub-vnet gains a dedicated RouteServerSubnet. Azure side has NO UDRs -
-// routes are learned dynamically through the Route Server.
+// hub-vnet gains a dedicated RouteServerSubnet. Azure site routes are learned
+// dynamically; the attached UDRs contain only explicit NVA egress defaults.
 
 module hubVnet '../modules/vnet.bicep' = {
   name: 'hub-vnet'
@@ -176,7 +217,7 @@ module hubVnet '../modules/vnet.bicep' = {
     tags: tags
     addressPrefixes: [ '10.0.0.0/24' ]
     subnets: [
-      { name: 'subnet1', prefix: '10.0.0.0/27', nsgId: workloadNsg.outputs.id }
+      { name: 'subnet1', prefix: '10.0.0.0/27', nsgId: workloadNsg.outputs.id, routeTableId: hubEgressUdr.outputs.id }
       { name: 'nvasubnet', prefix: '10.0.0.32/27', nsgId: nvaNsg.outputs.id }
       { name: 'RouteServerSubnet', prefix: '10.0.0.64/27' }
     ]
@@ -191,7 +232,7 @@ module spoke1Vnet '../modules/vnet.bicep' = {
     tags: tags
     addressPrefixes: [ '10.0.1.0/24' ]
     subnets: [
-      { name: 'subnet1', prefix: '10.0.1.0/27', nsgId: workloadNsg.outputs.id }
+      { name: 'subnet1', prefix: '10.0.1.0/27', nsgId: workloadNsg.outputs.id, routeTableId: spoke1EgressUdr.outputs.id }
     ]
   }
 }
@@ -204,7 +245,7 @@ module spoke2Vnet '../modules/vnet.bicep' = {
     tags: tags
     addressPrefixes: [ '10.0.2.0/24' ]
     subnets: [
-      { name: 'subnet1', prefix: '10.0.2.0/27', nsgId: workloadNsg.outputs.id }
+      { name: 'subnet1', prefix: '10.0.2.0/27', nsgId: workloadNsg.outputs.id, routeTableId: spoke2EgressUdr.outputs.id }
     ]
   }
 }
@@ -307,9 +348,13 @@ module hubVm '../modules/linux-vm.bicep' = {
     tags: tags
     subnetId: hubVnet.outputs.subnetIds.subnet1
     adminUsername: adminUsername
-    adminPassword: adminPassword
+    sshPublicKey: sshPublicKey
     customData: toolsCloudInit
+    createPublicIp: false
   }
+  dependsOn: [
+    hubNva
+  ]
 }
 
 module spoke1Vm '../modules/linux-vm.bicep' = {
@@ -321,9 +366,14 @@ module spoke1Vm '../modules/linux-vm.bicep' = {
     tags: tags
     subnetId: spoke1Vnet.outputs.subnetIds.subnet1
     adminUsername: adminUsername
-    adminPassword: adminPassword
+    sshPublicKey: sshPublicKey
     customData: toolsCloudInit
+    createPublicIp: false
   }
+  dependsOn: [
+    hubNva
+    peerSpoke1ToHub
+  ]
 }
 
 module spoke2Vm '../modules/linux-vm.bicep' = {
@@ -335,9 +385,14 @@ module spoke2Vm '../modules/linux-vm.bicep' = {
     tags: tags
     subnetId: spoke2Vnet.outputs.subnetIds.subnet1
     adminUsername: adminUsername
-    adminPassword: adminPassword
+    sshPublicKey: sshPublicKey
     customData: toolsCloudInit
+    createPublicIp: false
   }
+  dependsOn: [
+    hubNva
+    peerSpoke2ToHub
+  ]
 }
 
 module onpremVm '../modules/linux-vm.bicep' = {
@@ -349,9 +404,13 @@ module onpremVm '../modules/linux-vm.bicep' = {
     tags: tags
     subnetId: onpremVnet.outputs.subnetIds.subnet1
     adminUsername: adminUsername
-    adminPassword: adminPassword
+    sshPublicKey: sshPublicKey
     customData: toolsCloudInit
+    createPublicIp: false
   }
+  dependsOn: [
+    onpremNva
+  ]
 }
 
 // --------------------------- NVAs ------------------------------------------
@@ -365,7 +424,7 @@ module hubNva '../modules/linux-vm.bicep' = {
     tags: tags
     subnetId: hubVnet.outputs.subnetIds.nvasubnet
     adminUsername: adminUsername
-    adminPassword: adminPassword
+    sshPublicKey: sshPublicKey
     customData: nvaCloudInit
     enableIpForwarding: true
     staticPrivateIp: hubNvaIp
@@ -381,7 +440,7 @@ module onpremNva '../modules/linux-vm.bicep' = {
     tags: tags
     subnetId: onpremVnet.outputs.subnetIds.nvasubnet
     adminUsername: adminUsername
-    adminPassword: adminPassword
+    sshPublicKey: sshPublicKey
     customData: nvaCloudInit
     enableIpForwarding: true
     staticPrivateIp: onpremNvaIp
@@ -401,7 +460,7 @@ output routeServerIps array = routeServer.outputs.routeServerIps
 @description('Route Server ASN (always 65515).')
 output routeServerAsn int = routeServer.outputs.routeServerAsn
 
-output hubVmPublicIp string = hubVm.outputs.publicIp
-output spoke1VmPublicIp string = spoke1Vm.outputs.publicIp
-output spoke2VmPublicIp string = spoke2Vm.outputs.publicIp
-output onpremVmPublicIp string = onpremVm.outputs.publicIp
+output hubVmPrivateIp string = hubVm.outputs.privateIp
+output spoke1VmPrivateIp string = spoke1Vm.outputs.privateIp
+output spoke2VmPrivateIp string = spoke2Vm.outputs.privateIp
+output onpremVmPrivateIp string = onpremVm.outputs.privateIp

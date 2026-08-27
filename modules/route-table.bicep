@@ -4,19 +4,22 @@
 // ---------------------------------------------------------------------------
 
 @description('Name of the route table.')
+@minLength(1)
 param name string
 
 @description('Azure region for the route table.')
 param location string = resourceGroup().location
 
-@description('''Routes to create. Each item:
-{
+@sealed()
+type RouteConfig = {
   name: string
-  prefix: string        // destination CIDR
-  nextHopType: string   // e.g. VirtualAppliance, Internet, VnetLocal
-  nextHopIp: string (optional) // required when nextHopType == VirtualAppliance
-}''')
-param routes array = []
+  prefix: string
+  nextHopType: 'VirtualAppliance' | 'Internet' | 'VnetLocal' | 'None'
+  nextHopIp: string?
+}
+
+@description('Routes to create.')
+param routes RouteConfig[] = []
 
 @description('Disable BGP route propagation on the subnets this table is attached to.')
 param disableBgpRoutePropagation bool = false
@@ -24,7 +27,7 @@ param disableBgpRoutePropagation bool = false
 @description('Resource tags.')
 param tags object = {}
 
-resource routeTable 'Microsoft.Network/routeTables@2023-11-01' = {
+resource routeTable 'Microsoft.Network/routeTables@2025-05-01' = {
   name: name
   location: location
   tags: tags
@@ -36,7 +39,7 @@ resource routeTable 'Microsoft.Network/routeTables@2023-11-01' = {
         properties: {
           addressPrefix: r.prefix
           nextHopType: r.nextHopType
-          nextHopIpAddress: contains(r, 'nextHopIp') && !empty(r.nextHopIp) ? r.nextHopIp : null
+          nextHopIpAddress: !empty(r.?nextHopIp) ? r.?nextHopIp : null
         }
       }
     ]

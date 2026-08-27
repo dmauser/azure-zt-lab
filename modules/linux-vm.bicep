@@ -1,10 +1,11 @@
 // ---------------------------------------------------------------------------
-// Linux VM (Ubuntu 22.04)
+// Linux VM (Ubuntu 22.04, SSH-key authentication)
 // One reusable module for both workload VMs and NVAs. Set enableIpForwarding
 // and a staticPrivateIp for NVAs; leave defaults for plain workload VMs.
 // ---------------------------------------------------------------------------
 
 @description('Name of the virtual machine.')
+@minLength(1)
 param name string
 
 @description('Azure region for the VM and its network resources.')
@@ -17,11 +18,12 @@ param vmSize string = 'Standard_DS1_v2'
 param subnetId string
 
 @description('Admin username for the VM.')
+@minLength(1)
 param adminUsername string
 
-@description('Admin password for the VM.')
-@secure()
-param adminPassword string
+@description('SSH public key used for the admin account.')
+@minLength(20)
+param sshPublicKey string
 
 @description('Base64-encoded cloud-init / custom data. Leave empty for none.')
 @secure()
@@ -42,7 +44,7 @@ param tags object = {}
 var hasStaticIp = !empty(staticPrivateIp)
 var hasCustomData = !empty(customData)
 
-resource publicIp 'Microsoft.Network/publicIPAddresses@2023-11-01' = if (createPublicIp) {
+resource publicIp 'Microsoft.Network/publicIPAddresses@2025-05-01' = if (createPublicIp) {
   name: '${name}-pip'
   location: location
   tags: tags
@@ -54,7 +56,7 @@ resource publicIp 'Microsoft.Network/publicIPAddresses@2023-11-01' = if (createP
   }
 }
 
-resource nic 'Microsoft.Network/networkInterfaces@2023-11-01' = {
+resource nic 'Microsoft.Network/networkInterfaces@2025-05-01' = {
   name: '${name}-nic'
   location: location
   tags: tags
@@ -78,7 +80,7 @@ resource nic 'Microsoft.Network/networkInterfaces@2023-11-01' = {
   }
 }
 
-resource vm 'Microsoft.Compute/virtualMachines@2023-09-01' = {
+resource vm 'Microsoft.Compute/virtualMachines@2024-11-01' = {
   name: name
   location: location
   tags: tags
@@ -89,8 +91,18 @@ resource vm 'Microsoft.Compute/virtualMachines@2023-09-01' = {
     osProfile: {
       computerName: name
       adminUsername: adminUsername
-      adminPassword: adminPassword
       customData: hasCustomData ? customData : null
+      linuxConfiguration: {
+        disablePasswordAuthentication: true
+        ssh: {
+          publicKeys: [
+            {
+              path: '/home/${adminUsername}/.ssh/authorized_keys'
+              keyData: sshPublicKey
+            }
+          ]
+        }
+      }
     }
     storageProfile: {
       imageReference: {
@@ -112,6 +124,11 @@ resource vm 'Microsoft.Compute/virtualMachines@2023-09-01' = {
           id: nic.id
         }
       ]
+    }
+    diagnosticsProfile: {
+      bootDiagnostics: {
+        enabled: true
+      }
     }
   }
 }
